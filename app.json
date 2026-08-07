@@ -1,0 +1,19 @@
+{
+  "expo": {
+    "name": "Suivi Joueurs",
+    "slug": "suivi-joueurs",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#0F2818",
+    "splash": {
+      "backgroundColor": "#0F2818"
+    },
+    "android": {
+      "package": "com.suivijoueurs.app"
+    },
+    "ios": {
+      "bundleIdentifier": "com.suivijoueurs.app"
+    }
+  }
+}

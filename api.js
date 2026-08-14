@@ -10,6 +10,17 @@ async function request(path, pin, options = {}) {
   return res.status === 204 ? null : res.json();
 }
 
+export async function login(email, motDePasse) {
+  const res = await fetch(API_URL + '/api/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, motDePasse }),
+  });
+  if (res.status === 401) throw new Error('Identifiants incorrects');
+  if (!res.ok) throw new Error('Erreur serveur');
+  return res.json();
+}
+
 export const api = {
   checkPin: (pin) => request('/check-pin', pin, { method: 'POST' }),
   getPlayers: (pin) => request('/players', pin),
@@ -24,7 +35,17 @@ export const api = {
   addClub: (pin, playerId, nom) => request(`/players/${playerId}/clubs`, pin, { method: 'POST', body: JSON.stringify({ nom }) }),
   deleteClub: (pin, id) => request(`/clubs/${id}`, pin, { method: 'DELETE' }),
   addBlessure: (pin, playerId, data) => request(`/players/${playerId}/blessures`, pin, { method: 'POST', body: JSON.stringify(data) }),
+  updateBlessure: (pin, id, data) => request(`/blessures/${id}`, pin, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteBlessure: (pin, id) => request(`/blessures/${id}`, pin, { method: 'DELETE' }),
+  getMatches: (pin) => request('/matches', pin),
+  addMatch: (pin, titre, date) => request('/matches', pin, { method: 'POST', body: JSON.stringify({ titre, date }) }),
+  deleteMatch: (pin, id) => request(`/matches/${id}`, pin, { method: 'DELETE' }),
+  getCreneaux: (pin, matchId) => request(`/matches/${matchId}/creneaux`, pin),
+  addCreneau: (pin, matchId, data) => request(`/matches/${matchId}/creneaux`, pin, { method: 'POST', body: JSON.stringify(data) }),
+  deleteCreneau: (pin, id) => request(`/creneaux/${id}`, pin, { method: 'DELETE' }),
+  getUtilisateurs: (pin) => request('/utilisateurs', pin),
+  addUtilisateur: (pin, nom, email, motDePasse, roles) => request('/utilisateurs', pin, { method: 'POST', body: JSON.stringify({ nom, email, motDePasse, roles }) }),
+  deleteUtilisateur: (pin, id) => request(`/utilisateurs/${id}`, pin, { method: 'DELETE' }),
 };
 
 export const today = () => new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: '2-digit' });

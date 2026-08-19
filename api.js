@@ -1,9 +1,14 @@
 import { API_URL } from './config';
 
+let currentRole = '';
+export function setCurrentRole(role) {
+  currentRole = role || '';
+}
+
 async function request(path, pin, options = {}) {
   const res = await fetch(API_URL + '/api' + path, {
     ...options,
-    headers: { 'Content-Type': 'application/json', 'x-app-pin': pin, ...(options.headers || {}) },
+    headers: { 'Content-Type': 'application/json', 'x-app-pin': pin, 'x-app-role': currentRole, ...(options.headers || {}) },
   });
   if (res.status === 401) throw new Error('PIN invalide');
   if (!res.ok) throw new Error('Erreur serveur');
@@ -38,7 +43,7 @@ export const api = {
   updateBlessure: (pin, id, data) => request(`/blessures/${id}`, pin, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteBlessure: (pin, id) => request(`/blessures/${id}`, pin, { method: 'DELETE' }),
   getMatches: (pin) => request('/matches', pin),
-  addMatch: (pin, titre, date) => request('/matches', pin, { method: 'POST', body: JSON.stringify({ titre, date }) }),
+  addMatch: (pin, data) => request('/matches', pin, { method: 'POST', body: JSON.stringify(data) }),
   deleteMatch: (pin, id) => request(`/matches/${id}`, pin, { method: 'DELETE' }),
   getCreneaux: (pin, matchId) => request(`/matches/${matchId}/creneaux`, pin),
   addCreneau: (pin, matchId, data) => request(`/matches/${matchId}/creneaux`, pin, { method: 'POST', body: JSON.stringify(data) }),
@@ -46,6 +51,7 @@ export const api = {
   getUtilisateurs: (pin) => request('/utilisateurs', pin),
   addUtilisateur: (pin, nom, email, motDePasse, roles) => request('/utilisateurs', pin, { method: 'POST', body: JSON.stringify({ nom, email, motDePasse, roles }) }),
   deleteUtilisateur: (pin, id) => request(`/utilisateurs/${id}`, pin, { method: 'DELETE' }),
+  getActivites: (pin, since) => request(`/activites${since ? `?since=${encodeURIComponent(since)}` : ''}`, pin),
 };
 
 export const today = () => new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: '2-digit' });

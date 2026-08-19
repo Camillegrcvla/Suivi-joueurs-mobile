@@ -4,7 +4,7 @@ import {
   ScrollView, StyleSheet, StatusBar, Modal, KeyboardAvoidingView, Platform, Alert, BackHandler,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { api, today, calcAge, login } from './api';
+import { api, today, calcAge, login, setCurrentRole } from './api';
 
 const COLORS = {
   bg: '#0F1F2E', surface: '#16304A', surface2: '#1D3D5C', surface3: '#26507A',
@@ -15,6 +15,7 @@ const ACCENT = '#3DA9FC';
 const STATUTS = [
   { key: 'disponible', label: 'Disponible', short: 'Disponible', color: '#52D17C', sing: 'disponible', plur: 'disponibles' },
   { key: 'disponible_adaptation', label: 'Disponible avec adaptation', short: 'Adapté', color: '#A9D14E', sing: 'disponible (adaptation)', plur: 'disponibles (adaptation)' },
+  { key: 'a_surveiller', label: 'À surveiller', short: 'Surveillance', color: '#FFB020', sing: 'à surveiller', plur: 'à surveiller' },
   { key: 'attente_bilan', label: 'Attente bilan', short: 'Bilan', color: '#F5B942', sing: 'en attente de bilan', plur: 'en attente de bilan' },
   { key: 'protocole_commotion', label: 'Protocole commotion', short: 'Commotion', color: '#F2994A', sing: 'en protocole commotion', plur: 'en protocole commotion' },
   { key: 'retour_terrain', label: 'Retour terrain', short: 'Retour', color: '#56C2E0', sing: 'en retour terrain', plur: 'en retour terrain' },
@@ -24,7 +25,7 @@ const STATUTS = [
 const PRIORITY_ORDER = STATUTS.map((s) => s.key);
 const statutInfo = (key) => STATUTS.find((s) => s.key === key) || STATUTS[0];
 const STATUS_ICON = {
-  disponible: '✓', disponible_adaptation: '~', attente_bilan: '?', protocole_commotion: '⚠',
+  disponible: '✓', disponible_adaptation: '~', a_surveiller: '👁', attente_bilan: '?', protocole_commotion: '⚠',
   retour_terrain: '↻', suspendu: '■', indisponible: '✕',
 };
 const initials = (name) => name.split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
@@ -71,6 +72,33 @@ function Avatar({ player, size = 36 }) {
   );
 }
 
+function TeamLogo({ uri, size = 26 }) {
+  if (!uri) return <View style={{ width: size, height: size, borderRadius: 4, backgroundColor: COLORS.surface3 }} />;
+  return <Image source={{ uri }} style={{ width: size, height: size, borderRadius: 4 }} resizeMode="contain" />;
+}
+
+function matchLabel(m) {
+  if (m.equipeDomicile || m.equipeExterieur) return `${m.equipeDomicile || '?'} - ${m.equipeExterieur || '?'}`;
+  return m.titre || 'Match';
+}
+
+function MatchRow({ m, onPress }) {
+  return (
+    <TouchableOpacity style={styles.card} onPress={onPress}>
+      <View style={{ flex: 1 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <TeamLogo uri={m.logoDomicile} />
+          <Text style={{ fontWeight: '700', fontSize: 14, color: COLORS.text, flexShrink: 1 }} numberOfLines={1}>{matchLabel(m)}</Text>
+          <TeamLogo uri={m.logoExterieur} />
+        </View>
+        <Text style={{ fontSize: 11, color: COLORS.muted, marginTop: 5 }}>
+          {[m.date, m.heure, m.typeMatch].filter(Boolean).join(' · ')}
+        </Text>
+      </View>
+    </TouchableOpacity>
+  );
+}
+
 function StatusBadge({ status, onPress, editable = true }) {
   const s = statutInfo(status);
   return (
@@ -92,16 +120,18 @@ function StatusPickerModal({ visible, current, onSelect, onClose, subtitle }) {
             <TouchableOpacity onPress={onClose}><Text style={{ color: COLORS.muted, fontSize: 24, padding: 4 }}>✕</Text></TouchableOpacity>
           </View>
           {!!subtitle && <Text style={{ color: COLORS.muted, fontSize: 12, marginBottom: 14 }}>{subtitle}</Text>}
-          {STATUTS.map((s) => (
-            <TouchableOpacity
-              key={s.key}
-              onPress={() => onSelect(s.key)}
-              style={[styles.statusRow2, current === s.key && { borderColor: s.color, backgroundColor: s.color + '18' }]}
-            >
-              <View style={[styles.dot, { backgroundColor: s.color }]} />
-              <Text style={{ color: current === s.key ? s.color : COLORS.text, fontWeight: current === s.key ? '700' : '500', fontSize: 14 }}>{s.label}</Text>
-            </TouchableOpacity>
-          ))}
+          <ScrollView>
+            {STATUTS.map((s) => (
+              <TouchableOpacity
+                key={s.key}
+                onPress={() => onSelect(s.key)}
+                style={[styles.statusRow2, current === s.key && { borderColor: s.color, backgroundColor: s.color + '18' }]}
+              >
+                <View style={[styles.dot, { backgroundColor: s.color }]} />
+                <Text style={{ color: current === s.key ? s.color : COLORS.text, fontWeight: current === s.key ? '700' : '500', fontSize: 14 }}>{s.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
         </View>
       </View>
     </Modal>
@@ -188,6 +218,7 @@ const SYMPTOMES = ['Douleurs', 'Gonflement', 'Hématome', 'Instabilité', 'Perte
 const CONTEXTES = ['Échauffement', 'Entraînement', 'Match'];
 const BLESSURE_EDIT_ROLES = ['soigneur', 'osteopathe', 'kine', 'administrateur'];
 const BLESSURE_COMMENT_ROLES = ['medecin'];
+const STATUS_CHOICE_ROLES = ['soigneur', 'administrateur'];
 const PLAYER_EDIT_ROLES = ['soigneur', 'administrateur'];
 const SOIN_TYPES = ['Strap', 'Massage', 'Manipulation'];
 
@@ -219,7 +250,7 @@ function Chip({ label, active, onPress }) {
   );
 }
 
-function BlessureFormModal({ visible, onClose, onSave, initial }) {
+function BlessureFormModal({ visible, onClose, onSave, initial, role }) {
   const isEdit = !!initial;
   const [date, setDate] = useState('');
   const [zone, setZone] = useState('');
@@ -241,6 +272,7 @@ function BlessureFormModal({ visible, onClose, onSave, initial }) {
   const [suspicionCommotion, setSuspicionCommotion] = useState(false);
   const [symptomes, setSymptomes] = useState([]);
   const [symptomesAutre, setSymptomesAutre] = useState('');
+  const [newStatus, setNewStatus] = useState('indisponible');
 
   useEffect(() => {
     if (visible) {
@@ -268,7 +300,7 @@ function BlessureFormModal({ visible, onClose, onSave, initial }) {
     }
   }, [visible, initial]);
 
-  const reset = () => { setDate(''); setZone(''); setZoneRemarque(''); setCote(''); setDiagnostic(''); setDiagnosticAutre(''); setDiagnosticRemarque(''); setMecanisme(''); setMecanismeAutre(''); setMecanismeRemarque(''); setImagerie(false); setImagerieDate(''); setContexte(''); setMatchMinute(''); setDouleur(''); setSuspicionCommotion(false); setSymptomes([]); setSymptomesAutre(''); setRdvMedecin(false); setRdvMedecinDate(''); };
+  const reset = () => { setDate(''); setZone(''); setZoneRemarque(''); setCote(''); setDiagnostic(''); setDiagnosticAutre(''); setDiagnosticRemarque(''); setMecanisme(''); setMecanismeAutre(''); setMecanismeRemarque(''); setImagerie(false); setImagerieDate(''); setContexte(''); setMatchMinute(''); setDouleur(''); setSuspicionCommotion(false); setSymptomes([]); setSymptomesAutre(''); setRdvMedecin(false); setRdvMedecinDate(''); setNewStatus('indisponible'); };
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
@@ -376,8 +408,23 @@ function BlessureFormModal({ visible, onClose, onSave, initial }) {
               </>
             )}
 
+            {!isEdit && STATUS_CHOICE_ROLES.includes(role) && (
+              <>
+                <Text style={styles.fieldLabel}>Statut du joueur suite à cette blessure</Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
+                  {STATUTS.map((s) => (
+                    <Chip key={s.key} label={s.label} active={newStatus === s.key} onPress={() => setNewStatus(s.key)} />
+                  ))}
+                </View>
+              </>
+            )}
+
             <Text style={{ color: COLORS.muted, fontSize: 12, marginBottom: 12 }}>
-              {isEdit ? "L'ajout de photos ou de compte-rendu d'examen arrive dans une prochaine mise à jour." : "L'ajout de photos ou de compte-rendu d'examen arrive dans une prochaine mise à jour. Dès l'enregistrement, le statut du joueur passera automatiquement à « Indisponible »."}
+              {isEdit
+                ? "L'ajout de photos ou de compte-rendu d'examen arrive dans une prochaine mise à jour."
+                : STATUS_CHOICE_ROLES.includes(role)
+                  ? "L'ajout de photos ou de compte-rendu d'examen arrive dans une prochaine mise à jour."
+                  : "L'ajout de photos ou de compte-rendu d'examen arrive dans une prochaine mise à jour. Dès l'enregistrement, le statut du joueur passera automatiquement à « Indisponible »."}
             </Text>
 
             <TouchableOpacity
@@ -390,6 +437,7 @@ function BlessureFormModal({ visible, onClose, onSave, initial }) {
                   imagerie, imagerieDate, contexte, matchMinute: contexte === 'Match' ? matchMinute : '',
                   douleur, suspicionCommotion, symptomes: symptomes.join(', '), symptomesAutre: symptomes.includes('Autres') ? symptomesAutre : '',
                   rdvMedecin, rdvMedecinDate: rdvMedecin ? rdvMedecinDate : '',
+                  newStatus: STATUS_CHOICE_ROLES.includes(role) ? newStatus : 'indisponible',
                 });
                 reset();
               }}
@@ -398,6 +446,27 @@ function BlessureFormModal({ visible, onClose, onSave, initial }) {
             </TouchableOpacity>
           </ScrollView>
         </KeyboardAvoidingView>
+      </View>
+    </Modal>
+  );
+}
+
+function ProfileMenuModal({ visible, onClose, onChangeProfile, onLogout }) {
+  return (
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+      <View style={styles.sheetOverlay}>
+        <View style={styles.sheet}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 14 }}>
+            <Text style={styles.heading}>MENU</Text>
+            <TouchableOpacity onPress={onClose}><Text style={{ color: COLORS.muted, fontSize: 24, padding: 4 }}>✕</Text></TouchableOpacity>
+          </View>
+          <TouchableOpacity style={styles.menuBtn} onPress={() => { onClose(); onChangeProfile(); }}>
+            <Text style={styles.menuBtnText}>Changer de profil</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.menuBtn, { marginTop: 10 }]} onPress={() => { onClose(); onLogout(); }}>
+            <Text style={[styles.menuBtnText, { color: '#F0654A' }]}>Se déconnecter</Text>
+          </TouchableOpacity>
+        </View>
       </View>
     </Modal>
   );
@@ -424,7 +493,7 @@ function AvisMedecinField({ value, onSave }) {
   );
 }
 
-function BlessureDetailModal({ blessure, onClose, onDelete, onEdit, canEdit, canComment, onSaveAvis, extraContent }) {
+function BlessureDetailModal({ blessure, onClose, onDelete, onEdit, canEdit, canComment, onSaveAvis, extraContent, onMarkFinished }) {
   if (!blessure) return null;
   const b = blessure;
   return (
@@ -513,6 +582,19 @@ function BlessureDetailModal({ blessure, onClose, onDelete, onEdit, canEdit, can
                   <Text style={styles.btnPrimaryText}>Modifier cette blessure</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
+                  style={[styles.btnPrimary, { backgroundColor: '#52D17C', marginTop: 10 }]}
+                  onPress={() => Alert.alert(
+                    'Blessure terminée ?',
+                    'Le joueur repassera automatiquement disponible, et cette blessure sera archivée dans son historique.',
+                    [
+                      { text: 'Non', style: 'cancel' },
+                      { text: 'Oui, elle est finie', onPress: () => { onMarkFinished(b); onClose(); } },
+                    ]
+                  )}
+                >
+                  <Text style={styles.btnPrimaryText}>Marquer comme terminée</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
                   style={[styles.btnPrimary, { backgroundColor: '#F0654A', marginTop: 10 }]}
                   onPress={() => Alert.alert('Confirmer la suppression', 'Supprimer cette blessure ?', [
                     { text: 'Non', style: 'cancel' },
@@ -530,7 +612,7 @@ function BlessureDetailModal({ blessure, onClose, onDelete, onEdit, canEdit, can
   );
 }
 
-function QuickBlessureFlow({ visible, players, onClose, onSave }) {
+function QuickBlessureFlow({ visible, players, onClose, onSave, role }) {
   const [step, setStep] = useState('pick');
   const [search, setSearch] = useState('');
   const [playerId, setPlayerId] = useState(null);
@@ -544,6 +626,7 @@ function QuickBlessureFlow({ visible, players, onClose, onSave }) {
       <BlessureFormModal
         visible={visible}
         initial={null}
+        role={role}
         onClose={onClose}
         onSave={(data) => onSave(playerId, data)}
       />
@@ -615,6 +698,7 @@ export default function App() {
   const [matchesLoaded, setMatchesLoaded] = useState(false);
   const [matchDayScreen, setMatchDayScreen] = useState(null); // null | 'list' | 'detail' | 'soins'
   const [matchDaySelectedId, setMatchDaySelectedId] = useState(null);
+  const [creneauxLoadedFor, setCreneauxLoadedFor] = useState(null);
   const [creneauxForMatch, setCreneauxForMatch] = useState([]);
   const [showAddMatch, setShowAddMatch] = useState(false);
   const [showAccountsScreen, setShowAccountsScreen] = useState(false);
@@ -627,11 +711,25 @@ export default function App() {
   const [newAccountRoles, setNewAccountRoles] = useState([]);
   const [newMatchTitre, setNewMatchTitre] = useState('');
   const [newMatchDate, setNewMatchDate] = useState('');
+  const [newMatchHeure, setNewMatchHeure] = useState('');
+  const [newMatchDomicile, setNewMatchDomicile] = useState('');
+  const [newMatchExterieur, setNewMatchExterieur] = useState('');
+  const [newMatchType, setNewMatchType] = useState('');
+  const [newMatchLogoDomicile, setNewMatchLogoDomicile] = useState('');
+  const [newMatchLogoExterieur, setNewMatchLogoExterieur] = useState('');
 
   // Jour de match — joueur
   const [joueurIdentityId, setJoueurIdentityId] = useState(null);
   const [medecinLastSeen, setMedecinLastSeen] = useState(null);
   const [medecinLastSeenReady, setMedecinLastSeenReady] = useState(false);
+
+  // Notifications generalisees ("qui a ajoute quoi")
+  const [activites, setActivites] = useState([]);
+  const [activitesLoaded, setActivitesLoaded] = useState(false);
+  const [notifLastSeen, setNotifLastSeen] = useState(null);
+  const [notifLastSeenReady, setNotifLastSeenReady] = useState(false);
+  const [showNotifScreen, setShowNotifScreen] = useState(false);
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [identityCandidateId, setIdentityCandidateId] = useState(null);
   const [identityPinInput, setIdentityPinInput] = useState('');
   const [identityPinError, setIdentityPinError] = useState('');
@@ -700,10 +798,62 @@ export default function App() {
     setRole('');
   };
 
+  // "Changer de profil" : si le compte n'a qu'un seul profil, ça boucle sans jamais
+  // pouvoir se déconnecter — on force alors une déconnexion complète à la place.
+  const changeProfile = async () => {
+    if (!accountRoles || accountRoles.length <= 1) {
+      await logoutAccount();
+    } else {
+      await AsyncStorage.removeItem('user_role');
+      goHome();
+      setRole('');
+    }
+  };
+
   const markBlessuresSeen = async () => {
     const now = new Date().toISOString();
     await AsyncStorage.setItem('medecin_last_seen_blessures', now);
     setMedecinLastSeen(now);
+  };
+
+  useEffect(() => {
+    setCurrentRole(role);
+  }, [role]);
+
+  useEffect(() => {
+    if (!role) return;
+    AsyncStorage.getItem(`notif_last_seen_${role}`).then((stored) => {
+      setNotifLastSeen(stored || null);
+      setNotifLastSeenReady(true);
+    });
+  }, [role]);
+
+  const loadActivites = async () => {
+    try {
+      setActivites(await api.getActivites(pin));
+      setActivitesLoaded(true);
+    } catch {
+      setToast('Impossible de charger les notifications.');
+    }
+  };
+
+  const markNotifsSeen = async () => {
+    const now = new Date().toISOString();
+    await AsyncStorage.setItem(`notif_last_seen_${role}`, now);
+    setNotifLastSeen(now);
+  };
+
+  const relevantActivites = activites.filter((a) => {
+    if (role === 'medecin') return a.role === 'soigneur';
+    if (role === 'soigneur' || role === 'administrateur') return a.role !== role;
+    return false;
+  });
+  const unseenNotifCount = notifLastSeenReady
+    ? relevantActivites.filter((a) => !notifLastSeen || new Date(a.createdAt) > new Date(notifLastSeen)).length
+    : 0;
+
+  const openProfileMenu = () => {
+    setShowProfileMenu(true);
   };
 
   const selectRole = async (key) => {
@@ -725,11 +875,14 @@ export default function App() {
     setPendingBlessurePlayerId(null);
     setMatchDayScreen(null);
     setMatchDaySelectedId(null);
+    setCreneauxLoadedFor(null);
     setShowAddMatch(false);
     setMedecinBlessuresScreen(false);
     setMedecinSelectedBlessureId(null);
     setShowAccountsScreen(false);
     setShowAddAccount(false);
+    setShowNotifScreen(false);
+    setShowProfileMenu(false);
   };
 
   useEffect(() => {
@@ -740,6 +893,8 @@ export default function App() {
         return false;
       }
       if (pendingBlessurePlayerId) { setPendingBlessurePlayerId(null); return true; }
+      if (showNotifScreen) { setShowNotifScreen(false); return true; }
+      if (showProfileMenu) { setShowProfileMenu(false); return true; }
       if (showAddAccount) { setShowAddAccount(false); return true; }
       if (showAccountsScreen) { setShowAccountsScreen(false); return true; }
       if (showAdd) { setShowAdd(false); return true; }
@@ -753,13 +908,12 @@ export default function App() {
       if (medecinBlessuresScreen) { setMedecinBlessuresScreen(false); return true; }
       if (selectedId) { setSelectedId(null); return true; }
       if (showPlayersList) { setShowPlayersList(false); load(pin); return true; }
-      if (matchDayScreen === 'soins') { setMatchDayScreen('detail'); return true; }
       if (matchDayScreen === 'detail') { setMatchDayScreen('list'); return true; }
       if (matchDayScreen === 'list') { setMatchDayScreen(null); return true; }
       return false; // à l'accueil : laisse le comportement par défaut (quitter l'appli)
     });
     return () => sub.remove();
-  }, [role, joueurScreen, identityCandidateId, showAdd, showAddMatch, showQuickBlessure, showBlessureForm, selectedBlessureId, showStatusPicker, summaryFilter, selectedId, showPlayersList, pendingBlessurePlayerId, matchDayScreen, medecinBlessuresScreen, medecinSelectedBlessureId, showAccountsScreen, showAddAccount]);
+  }, [role, joueurScreen, identityCandidateId, showAdd, showAddMatch, showQuickBlessure, showBlessureForm, selectedBlessureId, showStatusPicker, summaryFilter, selectedId, showPlayersList, pendingBlessurePlayerId, matchDayScreen, medecinBlessuresScreen, medecinSelectedBlessureId, showAccountsScreen, showAddAccount, showNotifScreen, showProfileMenu]);
 
   const load = async (activePin) => {
     setLoading(true);
@@ -931,7 +1085,7 @@ export default function App() {
           <Text style={{ color: COLORS.muted, fontSize: 13, marginTop: 10, marginBottom: 28, textAlign: 'center' }}>
             Le suivi des joueurs est réservé à l'encadrement médical et administratif (Soigneur, Médecin, Ostéopathe, Kiné, Administrateur).
           </Text>
-          <TouchableOpacity style={[styles.btnPrimary, { width: 220 }]} onPress={async () => { await AsyncStorage.removeItem('user_role'); goHome(); setRole(''); }}>
+          <TouchableOpacity style={[styles.btnPrimary, { width: 220 }]} onPress={changeProfile}>
             <Text style={styles.btnPrimaryText}>Changer de profil</Text>
           </TouchableOpacity>
         </View>
@@ -944,7 +1098,7 @@ export default function App() {
       <SafeAreaView style={styles.shell}>
         <StatusBar barStyle="light-content" />
         <KeyboardAvoidingView style={styles.center} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-          <TouchableOpacity onPress={async () => { await AsyncStorage.removeItem('user_role'); goHome(); setRole(''); }} style={{ position: 'absolute', top: 20, left: 4, padding: 8 }}>
+          <TouchableOpacity onPress={changeProfile} style={{ position: 'absolute', top: 20, left: 4, padding: 8 }}>
             <Text style={{ color: COLORS.muted, fontSize: 13 }}>‹ Profils</Text>
           </TouchableOpacity>
           <Text style={styles.heading}>SUIVI JOUEURS</Text>
@@ -984,7 +1138,7 @@ export default function App() {
             <StatusBar barStyle="light-content" />
             <KeyboardAvoidingView style={styles.center} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
               <TouchableOpacity onPress={() => { setIdentityCandidateId(null); setIdentityPinInput(''); setIdentityPinError(''); }} style={{ position: 'absolute', top: 0, left: 0, padding: 8 }}>
-                <Text style={{ color: COLORS.text, fontSize: 22 }}>‹</Text>
+                <Text style={{ color: COLORS.text, fontSize: 30, fontWeight: '700' }}>‹</Text>
               </TouchableOpacity>
               <Text style={styles.heading}>{(candidate?.name || '').toUpperCase()}</Text>
               <Text style={{ color: COLORS.muted, fontSize: 13, marginTop: 6 }}>Entre ton code à 4 chiffres</Text>
@@ -1028,7 +1182,7 @@ export default function App() {
           <View style={styles.top}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
               <Text style={styles.heading}>QUI ES-TU ?</Text>
-              <TouchableOpacity onPress={async () => { await AsyncStorage.removeItem('user_role'); goHome(); setRole(''); }}>
+              <TouchableOpacity onPress={changeProfile}>
                 <Text style={{ color: COLORS.muted, fontSize: 11, textDecorationLine: 'underline' }}>Changer de profil</Text>
               </TouchableOpacity>
             </View>
@@ -1065,8 +1219,8 @@ export default function App() {
         <SafeAreaView style={styles.shell}>
           <StatusBar barStyle="light-content" />
           <View style={styles.detailTop}>
-            <TouchableOpacity onPress={() => { setJoueurScreen('matchlist'); setBookHeure(''); setBookSoinType(''); setBookZones([]); }} style={styles.iconBtn}><Text style={{ color: COLORS.text, fontSize: 22 }}>‹</Text></TouchableOpacity>
-            <Text style={styles.heading}>{(match?.titre || 'MATCH').toUpperCase()}</Text>
+            <TouchableOpacity onPress={() => { setJoueurScreen('matchlist'); setBookHeure(''); setBookSoinType(''); setBookZones([]); }} style={styles.iconBtn}><Text style={{ color: COLORS.text, fontSize: 30, fontWeight: '700' }}>‹</Text></TouchableOpacity>
+            <Text style={styles.heading}>{(match ? matchLabel(match) : 'MATCH').toUpperCase()}</Text>
           </View>
           <ScrollView style={{ padding: 18 }}>
             <Text style={styles.fieldLabel}>Créneau (à partir de 13h30)</Text>
@@ -1127,7 +1281,7 @@ export default function App() {
               <TouchableOpacity onPress={async () => { await AsyncStorage.removeItem('joueur_identity_player_id'); setJoueurIdentityId(null); }}>
                 <Text style={{ color: COLORS.muted, fontSize: 11, textDecorationLine: 'underline' }}>Pas {me?.name || 'toi'} ?</Text>
               </TouchableOpacity>
-              <TouchableOpacity onPress={async () => { await AsyncStorage.removeItem('user_role'); goHome(); setRole(''); }}>
+              <TouchableOpacity onPress={changeProfile}>
                 <Text style={{ color: COLORS.muted, fontSize: 11, textDecorationLine: 'underline' }}>Changer de profil</Text>
               </TouchableOpacity>
             </View>
@@ -1137,16 +1291,11 @@ export default function App() {
         <ScrollView style={{ paddingHorizontal: 18, marginTop: 10 }}>
           {matches.length === 0 && <Text style={styles.empty}>Aucun match programmé.</Text>}
           {matches.map((m) => (
-            <TouchableOpacity
+            <MatchRow
               key={m.id}
-              style={styles.card}
+              m={m}
               onPress={() => { setJoueurSelectedMatchId(m.id); loadCreneaux(m.id); setJoueurScreen('booking'); }}
-            >
-              <View style={{ flex: 1 }}>
-                <Text style={{ fontWeight: '700', fontSize: 15, color: COLORS.text }}>{m.titre}</Text>
-                {!!m.date && <Text style={{ fontSize: 11, color: COLORS.muted }}>{m.date}</Text>}
-              </View>
-            </TouchableOpacity>
+            />
           ))}
         </ScrollView>
         {!!toast && <View style={styles.toast}><Text style={{ color: '#fff', fontSize: 12, textAlign: 'center' }}>{toast}</Text></View>}
@@ -1168,7 +1317,7 @@ export default function App() {
       <SafeAreaView style={styles.shell}>
         <StatusBar barStyle="light-content" />
         <View style={styles.detailTop}>
-          <TouchableOpacity onPress={() => setSelectedId(null)} style={styles.iconBtn}><Text style={{ color: COLORS.text, fontSize: 22 }}>‹</Text></TouchableOpacity>
+          <TouchableOpacity onPress={() => setSelectedId(null)} style={styles.iconBtn}><Text style={{ color: COLORS.text, fontSize: 30, fontWeight: '700' }}>‹</Text></TouchableOpacity>
           <TouchableOpacity onPress={pickPhoto} style={{ marginRight: 4 }}>
             <Avatar player={player} size={44} />
           </TouchableOpacity>
@@ -1196,17 +1345,19 @@ export default function App() {
         <BlessureFormModal
           visible={showBlessureForm}
           initial={editingBlessure}
+          role={role}
           onClose={() => { setShowBlessureForm(false); setEditingBlessure(null); }}
           onSave={(data) => {
             const wasEdit = !!editingBlessure;
+            const { newStatus, ...blessureData } = data;
             setShowBlessureForm(false);
             setEditingBlessure(null);
             wrap(async () => {
               if (wasEdit) {
-                await api.updateBlessure(pin, editingBlessure.id, data);
+                await api.updateBlessure(pin, editingBlessure.id, blessureData);
               } else {
-                await api.addBlessure(pin, player.id, data);
-                setPendingBlessurePlayerId(player.id);
+                await api.addBlessure(pin, player.id, blessureData);
+                await api.updatePlayer(pin, player.id, { status: newStatus || 'indisponible' });
               }
             });
           }}
@@ -1219,6 +1370,11 @@ export default function App() {
           onDelete={(id) => wrap(() => api.deleteBlessure(pin, id))}
           onEdit={(b) => { setSelectedBlessureId(null); setEditingBlessure(b); setShowBlessureForm(true); }}
           onSaveAvis={(id, avisMedecin) => wrap(() => api.updateBlessure(pin, id, { avisMedecin }))}
+          onMarkFinished={(b) => wrap(async () => {
+            await api.addHistorique(pin, player.id, `Blessure terminée : ${blessureLabel(b)}${b.diagnostic ? ' — ' + b.diagnostic : ''}`, b.date || today());
+            await api.deleteBlessure(pin, b.id);
+            await api.updatePlayer(pin, player.id, { status: 'disponible' });
+          })}
         />
         <StatusPickerModal
           visible={!!pendingBlessurePlayerId}
@@ -1409,17 +1565,65 @@ export default function App() {
     ? ongoingInjuries.filter(({ blessure: b }) => b.createdAt && (!medecinLastSeen || new Date(b.createdAt) > new Date(medecinLastSeen))).length
     : 0;
 
+  const activeStatuses = STATUTS.map((s) => ({ ...s, count: players.filter((p) => p.status === s.key).length })).filter((s) => s.count > 0);
+
   // ---------- MATCH DAY SCREENS (staff) ----------
-  if (matchDayScreen === 'soins' && matchDaySelectedId) {
+  if (matchDayScreen === 'detail' && matchDaySelectedId) {
     const match = matches.find((m) => m.id === matchDaySelectedId);
+    if (!creneauxLoadedFor || creneauxLoadedFor !== matchDaySelectedId) {
+      loadCreneaux(matchDaySelectedId);
+      setCreneauxLoadedFor(matchDaySelectedId);
+    }
     return (
       <SafeAreaView style={styles.shell}>
         <StatusBar barStyle="light-content" />
         <View style={styles.detailTop}>
-          <TouchableOpacity onPress={() => setMatchDayScreen('detail')} style={styles.iconBtn}><Text style={{ color: COLORS.text, fontSize: 22 }}>‹</Text></TouchableOpacity>
-          <Text style={styles.heading}>SOINS · {(match?.titre || '').toUpperCase()}</Text>
+          <TouchableOpacity onPress={() => setMatchDayScreen('list')} style={styles.iconBtn}><Text style={{ color: COLORS.text, fontSize: 30, fontWeight: '700' }}>‹</Text></TouchableOpacity>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.heading}>JOUR DE MATCH</Text>
+            {!!match && (
+              <Text style={{ color: COLORS.muted, fontSize: 12 }}>
+                {[match.date, match.heure].filter(Boolean).join(' · ')}
+                {'\n'}{matchLabel(match)}
+              </Text>
+            )}
+          </View>
+          <TouchableOpacity style={styles.iconRoundBtn} onPress={() => { setActivitesLoaded(false); setShowNotifScreen(true); }}>
+            <Text style={{ color: COLORS.text, fontSize: 16 }}>🔔</Text>
+            {bellCount > 0 && <View style={styles.bellBadge}><Text style={{ color: '#fff', fontSize: 10, fontWeight: '800' }}>{bellCount > 9 ? '9+' : bellCount}</Text></View>}
+          </TouchableOpacity>
         </View>
-        <ScrollView style={{ padding: 18 }}>
+
+        {!!match && (
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 14, paddingVertical: 16 }}>
+            <TeamLogo uri={match.logoDomicile} size={40} />
+            <Text style={{ color: COLORS.text, fontWeight: '800', fontSize: 15 }}>{match.equipeDomicile || '?'}</Text>
+            <Text style={{ color: COLORS.muted, fontSize: 12 }}>VS</Text>
+            <Text style={{ color: COLORS.text, fontWeight: '800', fontSize: 15 }}>{match.equipeExterieur || '?'}</Text>
+            <TeamLogo uri={match.logoExterieur} size={40} />
+          </View>
+        )}
+
+        <ScrollView style={{ paddingHorizontal: 18 }} contentContainerStyle={{ paddingBottom: 40 }}>
+          {activeStatuses.length > 0 && (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, marginBottom: 22 }}>
+              {activeStatuses.map((s) => {
+                const pct = players.length > 0 ? Math.round((s.count / players.length) * 100) : 0;
+                return (
+                  <TouchableOpacity key={s.key} style={[styles.statCard, { borderColor: s.color + '55' }]} onPress={() => setSummaryFilter(s)}>
+                    <View style={[styles.statIconCircle, { backgroundColor: s.color }]}>
+                      <Text style={{ color: '#0F1F2E', fontWeight: '800', fontSize: 13 }}>{STATUS_ICON[s.key] || '•'}</Text>
+                    </View>
+                    <Text style={{ color: COLORS.text, fontWeight: '800', fontSize: 20, marginTop: 8 }}>{s.count}</Text>
+                    <Text style={{ color: COLORS.muted, fontSize: 11, marginTop: 2 }} numberOfLines={1}>{s.short}</Text>
+                    <Text style={{ color: COLORS.muted, fontSize: 10, marginTop: 6 }}>{pct}% de l'effectif</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          )}
+
+          <Text style={{ color: COLORS.muted, fontSize: 11, fontWeight: '800', textTransform: 'uppercase', marginBottom: 10 }}>Soins programmés</Text>
           {creneauxForMatch.length === 0 && <Text style={styles.empty}>Aucun créneau réservé pour l'instant.</Text>}
           {[...creneauxForMatch].sort((a, b) => a.heure.localeCompare(b.heure)).map((c) => (
             <View key={c.id} style={styles.entry}>
@@ -1432,26 +1636,58 @@ export default function App() {
               </View>
             </View>
           ))}
-        </ScrollView>
-        {!!toast && <View style={styles.toast}><Text style={{ color: '#fff', fontSize: 12, textAlign: 'center' }}>{toast}</Text></View>}
-      </SafeAreaView>
-    );
-  }
 
-  if (matchDayScreen === 'detail' && matchDaySelectedId) {
-    const match = matches.find((m) => m.id === matchDaySelectedId);
-    return (
-      <SafeAreaView style={styles.shell}>
-        <StatusBar barStyle="light-content" />
-        <View style={styles.detailTop}>
-          <TouchableOpacity onPress={() => setMatchDayScreen('list')} style={styles.iconBtn}><Text style={{ color: COLORS.text, fontSize: 22 }}>‹</Text></TouchableOpacity>
-          <Text style={styles.heading}>{(match?.titre || 'MATCH').toUpperCase()}</Text>
-        </View>
-        <View style={{ padding: 18, gap: 10 }}>
-          <TouchableOpacity style={styles.menuBtn} onPress={() => { loadCreneaux(matchDaySelectedId); setMatchDayScreen('soins'); }}>
-            <Text style={styles.menuBtnText}>Soins</Text>
-          </TouchableOpacity>
-        </View>
+          <Text style={{ color: COLORS.muted, fontSize: 11, fontWeight: '800', textTransform: 'uppercase', marginTop: 22, marginBottom: 10 }}>Actions rapides</Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: 22 }}>
+            {canQuickAddBlessure && (
+              <TouchableOpacity style={styles.quickAction} onPress={() => setShowQuickBlessure(true)}>
+                <View style={[styles.quickActionCircle, { backgroundColor: '#F0654A22' }]}><Text style={{ color: '#F0654A', fontSize: 20, fontWeight: '800' }}>+</Text></View>
+                <Text style={styles.quickActionText}>Nouvelle{'\n'}blessure</Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity style={styles.quickAction} onPress={() => Alert.alert('Bientôt disponible', 'Cette fonctionnalité sera développée prochainement.')}>
+              <View style={[styles.quickActionCircle, { backgroundColor: COLORS.surface3 }]}><Text style={{ color: COLORS.muted, fontSize: 18 }}>📝</Text></View>
+              <Text style={styles.quickActionText}>Note{'\n'}rapide</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.quickAction} onPress={() => Alert.alert('Bientôt disponible', 'Cette fonctionnalité sera développée prochainement.')}>
+              <View style={[styles.quickActionCircle, { backgroundColor: COLORS.surface3 }]}><Text style={{ color: COLORS.muted, fontSize: 18 }}>📋</Text></View>
+              <Text style={styles.quickActionText}>Historique{'\n'}match</Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+        <SummaryListModal
+          visible={!!summaryFilter}
+          statut={summaryFilter}
+          players={players}
+          onClose={() => setSummaryFilter(null)}
+          onOpenPlayer={(id) => { setSummaryFilter(null); setSelectedId(id); setTab('infos'); }}
+        />
+        <QuickBlessureFlow
+          visible={showQuickBlessure}
+          players={players}
+          role={role}
+          onClose={() => setShowQuickBlessure(false)}
+          onSave={(playerId, data) => {
+            const { newStatus, ...blessureData } = data;
+            setShowQuickBlessure(false);
+            wrap(async () => {
+              await api.addBlessure(pin, playerId, blessureData);
+              await api.updatePlayer(pin, playerId, { status: newStatus || 'indisponible' });
+            });
+          }}
+        />
+        <StatusPickerModal
+          visible={!!pendingBlessurePlayerId}
+          current="indisponible"
+          subtitle="Quelle est la disponibilité du joueur suite à cette blessure ?"
+          onClose={() => setPendingBlessurePlayerId(null)}
+          onSelect={(key) => {
+            const pid = pendingBlessurePlayerId;
+            setPendingBlessurePlayerId(null);
+            wrap(() => api.updatePlayer(pin, pid, { status: key }));
+          }}
+        />
+        {!!toast && <View style={styles.toast}><Text style={{ color: '#fff', fontSize: 12, textAlign: 'center' }}>{toast}</Text></View>}
       </SafeAreaView>
     );
   }
@@ -1462,51 +1698,93 @@ export default function App() {
         <StatusBar barStyle="light-content" />
         <View style={styles.top}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-            <TouchableOpacity onPress={() => setMatchDayScreen(null)} style={styles.iconBtn}><Text style={{ color: COLORS.text, fontSize: 22 }}>‹</Text></TouchableOpacity>
+            <TouchableOpacity onPress={() => setMatchDayScreen(null)} style={styles.iconBtn}><Text style={{ color: COLORS.text, fontSize: 30, fontWeight: '700' }}>‹</Text></TouchableOpacity>
             <Text style={styles.heading}>JOUR DE MATCH</Text>
           </View>
         </View>
-        <ScrollView style={{ paddingHorizontal: 18, marginTop: 10 }}>
+        <ScrollView style={{ paddingHorizontal: 18, marginTop: 10 }} contentContainerStyle={{ paddingBottom: 40 }}>
           {matches.length === 0 && <Text style={styles.empty}>Aucun match programmé.</Text>}
           {matches.map((m) => (
-            <TouchableOpacity key={m.id} style={styles.card} onPress={() => { setMatchDaySelectedId(m.id); setMatchDayScreen('detail'); }}>
-              <View style={{ flex: 1 }}>
-                <Text style={{ fontWeight: '700', fontSize: 15, color: COLORS.text }}>{m.titre}</Text>
-                {!!m.date && <Text style={{ fontSize: 11, color: COLORS.muted }}>{m.date}</Text>}
-              </View>
-            </TouchableOpacity>
+            <MatchRow key={m.id} m={m} onPress={() => { setMatchDaySelectedId(m.id); setCreneauxLoadedFor(null); setMatchDayScreen('detail'); }} />
           ))}
+
+          {activeStatuses.length > 0 && (
+            <>
+              <Text style={{ color: COLORS.muted, fontSize: 11, fontWeight: '800', textTransform: 'uppercase', marginTop: 22, marginBottom: 10 }}>Récap dispos</Text>
+              <View style={styles.summaryRow}>
+                {activeStatuses.map((s) => (
+                  <View key={s.key} style={[styles.summaryPill, { borderColor: s.color }]}>
+                    <View style={[styles.dot, { backgroundColor: s.color }]} />
+                    <Text style={{ color: s.color, fontSize: 11, fontWeight: '700' }}>{s.count} {s.count > 1 ? s.plur : s.sing}</Text>
+                  </View>
+                ))}
+              </View>
+            </>
+          )}
         </ScrollView>
         <TouchableOpacity style={styles.fab} onPress={() => setShowAddMatch(true)}>
           <Text style={{ color: '#0F1F2E', fontSize: 26, fontWeight: '800' }}>+</Text>
         </TouchableOpacity>
         <Modal visible={showAddMatch} animationType="slide" transparent onRequestClose={() => setShowAddMatch(false)}>
           <View style={styles.sheetOverlay}>
-            <KeyboardAvoidingView style={styles.sheet} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+            <KeyboardAvoidingView style={[styles.sheet, { maxHeight: '88%' }]} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 14 }}>
                 <Text style={styles.heading}>NOUVEAU MATCH</Text>
                 <TouchableOpacity onPress={() => setShowAddMatch(false)}><Text style={{ color: COLORS.muted, fontSize: 24, padding: 4 }}>✕</Text></TouchableOpacity>
               </View>
-              <TextInput style={styles.field} placeholder="Titre du match (ex : vs Racing 92)" placeholderTextColor={COLORS.muted} value={newMatchTitre} onChangeText={setNewMatchTitre} autoFocus />
-              <TextInput style={styles.field} placeholder="Date (optionnel)" placeholderTextColor={COLORS.muted} value={newMatchDate} onChangeText={setNewMatchDate} />
-              <TouchableOpacity
-                style={styles.btnPrimary}
-                onPress={() => {
-                  if (newMatchTitre.trim()) {
-                    (async () => {
-                      try {
-                        await api.addMatch(pin, newMatchTitre.trim(), newMatchDate.trim());
-                        await loadMatches();
-                        setShowAddMatch(false);
-                        setNewMatchTitre('');
-                        setNewMatchDate('');
-                      } catch { setToast('Erreur, réessaie.'); }
-                    })();
-                  }
-                }}
-              >
-                <Text style={styles.btnPrimaryText}>Ajouter</Text>
-              </TouchableOpacity>
+              <ScrollView>
+                <Text style={styles.fieldLabel}>Équipe à domicile</Text>
+                <TextInput style={[styles.field, { marginBottom: 10 }]} placeholder="Ex : Sporting Club Mazamet" placeholderTextColor={COLORS.muted} value={newMatchDomicile} onChangeText={setNewMatchDomicile} />
+                <Text style={styles.fieldLabel}>Logo domicile (lien image, optionnel)</Text>
+                <TextInput style={[styles.field, { marginBottom: 10 }]} placeholder="https://…" placeholderTextColor={COLORS.muted} value={newMatchLogoDomicile} onChangeText={setNewMatchLogoDomicile} autoCapitalize="none" />
+
+                <Text style={styles.fieldLabel}>Équipe à l'extérieur</Text>
+                <TextInput style={[styles.field, { marginBottom: 10 }]} placeholder="Ex : Gruissan" placeholderTextColor={COLORS.muted} value={newMatchExterieur} onChangeText={setNewMatchExterieur} />
+                <Text style={styles.fieldLabel}>Logo extérieur (lien image, optionnel)</Text>
+                <TextInput style={[styles.field, { marginBottom: 10 }]} placeholder="https://…" placeholderTextColor={COLORS.muted} value={newMatchLogoExterieur} onChangeText={setNewMatchLogoExterieur} autoCapitalize="none" />
+
+                <Text style={styles.fieldLabel}>Date</Text>
+                <TextInput style={[styles.field, { marginBottom: 10 }]} placeholder="Dimanche 6 septembre 2026" placeholderTextColor={COLORS.muted} value={newMatchDate} onChangeText={setNewMatchDate} />
+                <Text style={styles.fieldLabel}>Heure</Text>
+                <TextInput style={[styles.field, { marginBottom: 10 }]} placeholder="15:00" placeholderTextColor={COLORS.muted} value={newMatchHeure} onChangeText={setNewMatchHeure} />
+
+                <Text style={styles.fieldLabel}>Type</Text>
+                <View style={{ flexDirection: 'row', gap: 6, marginBottom: 16 }}>
+                  <Chip label="Match aller" active={newMatchType === 'Match aller'} onPress={() => setNewMatchType('Match aller')} />
+                  <Chip label="Match retour" active={newMatchType === 'Match retour'} onPress={() => setNewMatchType('Match retour')} />
+                </View>
+
+                <TouchableOpacity
+                  style={styles.btnPrimary}
+                  onPress={() => {
+                    if (newMatchDomicile.trim() || newMatchExterieur.trim() || newMatchTitre.trim()) {
+                      (async () => {
+                        try {
+                          await api.addMatch(pin, {
+                            titre: newMatchTitre.trim(),
+                            equipeDomicile: newMatchDomicile.trim(),
+                            equipeExterieur: newMatchExterieur.trim(),
+                            date: newMatchDate.trim(),
+                            heure: newMatchHeure.trim(),
+                            typeMatch: newMatchType,
+                            logoDomicile: newMatchLogoDomicile.trim(),
+                            logoExterieur: newMatchLogoExterieur.trim(),
+                          });
+                          await loadMatches();
+                          setShowAddMatch(false);
+                          setNewMatchTitre(''); setNewMatchDate(''); setNewMatchHeure('');
+                          setNewMatchDomicile(''); setNewMatchExterieur(''); setNewMatchType('');
+                          setNewMatchLogoDomicile(''); setNewMatchLogoExterieur('');
+                        } catch { setToast('Erreur, réessaie.'); }
+                      })();
+                    } else {
+                      Alert.alert('Champs manquants', 'Renseigne au moins les deux équipes.');
+                    }
+                  }}
+                >
+                  <Text style={styles.btnPrimaryText}>Ajouter</Text>
+                </TouchableOpacity>
+              </ScrollView>
             </KeyboardAvoidingView>
           </View>
         </Modal>
@@ -1523,7 +1801,7 @@ export default function App() {
         <StatusBar barStyle="light-content" />
         <View style={styles.top}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-            <TouchableOpacity onPress={() => { setShowPlayersList(false); load(pin); }} style={styles.iconBtn}><Text style={{ color: COLORS.text, fontSize: 22 }}>‹</Text></TouchableOpacity>
+            <TouchableOpacity onPress={() => { setShowPlayersList(false); load(pin); }} style={styles.iconBtn}><Text style={{ color: COLORS.text, fontSize: 30, fontWeight: '700' }}>‹</Text></TouchableOpacity>
             <Text style={styles.heading}>LISTE DES JOUEURS</Text>
           </View>
           <Text style={{ fontSize: 12, color: COLORS.muted, marginTop: 6, marginBottom: 14 }}>{players.length} joueur{players.length !== 1 ? 's' : ''} suivi{players.length !== 1 ? 's' : ''}</Text>
@@ -1607,7 +1885,7 @@ export default function App() {
       <SafeAreaView style={styles.shell}>
         <StatusBar barStyle="light-content" />
         <View style={styles.detailTop}>
-          <TouchableOpacity onPress={() => { setMedecinBlessuresScreen(false); setMedecinSelectedBlessureId(null); }} style={styles.iconBtn}><Text style={{ color: COLORS.text, fontSize: 22 }}>‹</Text></TouchableOpacity>
+          <TouchableOpacity onPress={() => { setMedecinBlessuresScreen(false); setMedecinSelectedBlessureId(null); }} style={styles.iconBtn}><Text style={{ color: COLORS.text, fontSize: 30, fontWeight: '700' }}>‹</Text></TouchableOpacity>
           <Text style={styles.heading}>BLESSURES</Text>
         </View>
         <ScrollView style={{ padding: 18 }}>
@@ -1631,6 +1909,7 @@ export default function App() {
           onClose={() => setMedecinSelectedBlessureId(null)}
           onDelete={() => {}}
           onEdit={() => {}}
+          onMarkFinished={() => {}}
           onSaveAvis={(id, avisMedecin) => wrap(() => api.updateBlessure(pin, id, { avisMedecin }))}
           extraContent={selected && (
             <>
@@ -1657,7 +1936,7 @@ export default function App() {
       <SafeAreaView style={styles.shell}>
         <StatusBar barStyle="light-content" />
         <View style={styles.detailTop}>
-          <TouchableOpacity onPress={() => setShowAccountsScreen(false)} style={styles.iconBtn}><Text style={{ color: COLORS.text, fontSize: 22 }}>‹</Text></TouchableOpacity>
+          <TouchableOpacity onPress={() => setShowAccountsScreen(false)} style={styles.iconBtn}><Text style={{ color: COLORS.text, fontSize: 30, fontWeight: '700' }}>‹</Text></TouchableOpacity>
           <Text style={styles.heading}>COMPTES</Text>
         </View>
         <ScrollView style={{ padding: 18 }}>
@@ -1733,8 +2012,42 @@ export default function App() {
   // ---------- HOME MENU ----------
   const canQuickAddBlessure = BLESSURE_EDIT_ROLES.includes(role);
   const roleLabel = (ROLES.find((r) => r.key === role) || {}).label || '';
-  const activeStatuses = STATUTS.map((s) => ({ ...s, count: players.filter((p) => p.status === s.key).length })).filter((s) => s.count > 0);
-  const bellCount = role === 'medecin' ? unseenBlessuresCount : ongoingInjuries.length;
+  const bellCount = unseenNotifCount;
+
+  // ---------- NOTIFICATIONS SCREEN ----------
+  if (showNotifScreen) {
+    if (!activitesLoaded) loadActivites();
+    return (
+      <SafeAreaView style={styles.shell}>
+        <StatusBar barStyle="light-content" />
+        <View style={styles.detailTop}>
+          <TouchableOpacity onPress={() => setShowNotifScreen(false)} style={styles.iconBtn}><Text style={{ color: COLORS.text, fontSize: 30, fontWeight: '700' }}>‹</Text></TouchableOpacity>
+          <Text style={styles.heading}>NOTIFICATIONS</Text>
+        </View>
+        <ScrollView style={{ padding: 18 }}>
+          {relevantActivites.length === 0 && <Text style={styles.empty}>Aucune notification pour l'instant.</Text>}
+          {relevantActivites.map((a) => {
+            const isNew = !notifLastSeen || new Date(a.createdAt) > new Date(notifLastSeen);
+            const roleLbl = (ROLES.find((r) => r.key === a.role) || {}).label || a.role;
+            return (
+              <View key={a.id} style={[styles.entry, isNew && { borderLeftColor: '#3DA9FC' }]}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.entryTxt}>{a.label}</Text>
+                  <Text style={styles.entryDate}>{roleLbl} · {new Date(a.createdAt).toLocaleString('fr-FR')}</Text>
+                </View>
+              </View>
+            );
+          })}
+        </ScrollView>
+        {unseenNotifCount > 0 && (
+          <TouchableOpacity style={[styles.btnPrimary, { margin: 18 }]} onPress={markNotifsSeen}>
+            <Text style={styles.btnPrimaryText}>Marquer tout comme vu</Text>
+          </TouchableOpacity>
+        )}
+        {!!toast && <View style={styles.toast}><Text style={{ color: '#fff', fontSize: 12, textAlign: 'center' }}>{toast}</Text></View>}
+      </SafeAreaView>
+    );
+  }
 
   if (role === 'medecin') {
     const dispoCount = players.filter((p) => p.status === 'disponible').length;
@@ -1753,10 +2066,10 @@ export default function App() {
               <Text style={{ color: COLORS.muted, fontSize: 12, marginTop: 2 }}>Médecin – Dashboard</Text>
             </View>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-              <TouchableOpacity onPress={async () => { await AsyncStorage.removeItem('user_role'); goHome(); setRole(''); }}>
-                <Text style={{ color: '#3DA9FC', fontSize: 12, textDecorationLine: 'underline' }}>Changer de profil</Text>
+              <TouchableOpacity onPress={openProfileMenu}>
+                <Text style={{ color: '#3DA9FC', fontSize: 12, textDecorationLine: 'underline' }}>Menu</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.iconRoundBtn} onPress={markBlessuresSeen}>
+              <TouchableOpacity style={styles.iconRoundBtn} onPress={() => { setActivitesLoaded(false); setShowNotifScreen(true); }}>
                 <Text style={{ color: COLORS.text, fontSize: 16 }}>🔔</Text>
                 {bellCount > 0 && <View style={styles.bellBadge}><Text style={{ color: '#fff', fontSize: 10, fontWeight: '800' }}>{bellCount > 9 ? '9+' : bellCount}</Text></View>}
               </TouchableOpacity>
@@ -1858,13 +2171,19 @@ export default function App() {
             <Text style={{ fontSize: 18 }}>📊</Text>
             <Text style={styles.navItemText}>Stats</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.navItem} onPress={async () => { await AsyncStorage.removeItem('user_role'); goHome(); setRole(''); }}>
+          <TouchableOpacity style={styles.navItem} onPress={changeProfile}>
             <Text style={{ fontSize: 18 }}>⋯</Text>
             <Text style={styles.navItemText}>Plus</Text>
           </TouchableOpacity>
         </View>
 
         {!!toast && <View style={styles.toast}><Text style={{ color: '#fff', fontSize: 12, textAlign: 'center' }}>{toast}</Text></View>}
+        <ProfileMenuModal
+          visible={showProfileMenu}
+          onClose={() => setShowProfileMenu(false)}
+          onChangeProfile={changeProfile}
+          onLogout={logoutAccount}
+        />
       </SafeAreaView>
     );
   }
@@ -1874,16 +2193,16 @@ export default function App() {
       <StatusBar barStyle="light-content" />
       <ScrollView style={styles.top} contentContainerStyle={{ paddingBottom: 110 }}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-          <TouchableOpacity onPress={async () => { await AsyncStorage.removeItem('user_role'); goHome(); setRole(''); }} style={styles.iconRoundBtn}>
+          <TouchableOpacity onPress={openProfileMenu} style={styles.iconRoundBtn}>
             <Text style={{ color: COLORS.text, fontSize: 18 }}>☰</Text>
           </TouchableOpacity>
           <Text style={[styles.heading, { fontSize: 15 }]}>MÉDIXV</Text>
-          <View style={styles.iconRoundBtn}>
+          <TouchableOpacity style={styles.iconRoundBtn} onPress={() => { setActivitesLoaded(false); setShowNotifScreen(true); }}>
             <Text style={{ color: COLORS.text, fontSize: 18 }}>🔔</Text>
             {bellCount > 0 && (
               <View style={styles.bellBadge}><Text style={{ color: '#fff', fontSize: 10, fontWeight: '800' }}>{bellCount > 9 ? '9+' : bellCount}</Text></View>
             )}
-          </View>
+          </TouchableOpacity>
         </View>
 
         <Text style={{ color: COLORS.text, fontSize: 22, fontWeight: '800', marginTop: 18 }}>Bonjour</Text>
@@ -1990,7 +2309,7 @@ export default function App() {
           <Text style={{ fontSize: 18 }}>💊</Text>
           <Text style={styles.navItemText}>Pharmacie</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.navItem} onPress={async () => { await AsyncStorage.removeItem('user_role'); goHome(); setRole(''); }}>
+        <TouchableOpacity style={styles.navItem} onPress={changeProfile}>
           <Text style={{ fontSize: 18 }}>⋯</Text>
           <Text style={styles.navItemText}>Plus</Text>
         </TouchableOpacity>
@@ -2009,12 +2328,14 @@ export default function App() {
       <QuickBlessureFlow
         visible={showQuickBlessure}
         players={players}
+        role={role}
         onClose={() => setShowQuickBlessure(false)}
         onSave={(playerId, data) => {
+          const { newStatus, ...blessureData } = data;
           setShowQuickBlessure(false);
           wrap(async () => {
-            await api.addBlessure(pin, playerId, data);
-            setPendingBlessurePlayerId(playerId);
+            await api.addBlessure(pin, playerId, blessureData);
+            await api.updatePlayer(pin, playerId, { status: newStatus || 'indisponible' });
           });
         }}
       />
@@ -2028,6 +2349,12 @@ export default function App() {
           setPendingBlessurePlayerId(null);
           wrap(() => api.updatePlayer(pin, pid, { status: key }));
         }}
+      />
+      <ProfileMenuModal
+        visible={showProfileMenu}
+        onClose={() => setShowProfileMenu(false)}
+        onChangeProfile={changeProfile}
+        onLogout={logoutAccount}
       />
     </SafeAreaView>
   );

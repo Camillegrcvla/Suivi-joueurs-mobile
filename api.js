@@ -44,6 +44,7 @@ export const api = {
   deleteBlessure: (pin, id) => request(`/blessures/${id}`, pin, { method: 'DELETE' }),
   getMatches: (pin) => request('/matches', pin),
   addMatch: (pin, data) => request('/matches', pin, { method: 'POST', body: JSON.stringify(data) }),
+  updateMatch: (pin, id, data) => request(`/matches/${id}`, pin, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteMatch: (pin, id) => request(`/matches/${id}`, pin, { method: 'DELETE' }),
   getCreneaux: (pin, matchId) => request(`/matches/${matchId}/creneaux`, pin),
   addCreneau: (pin, matchId, data) => request(`/matches/${matchId}/creneaux`, pin, { method: 'POST', body: JSON.stringify(data) }),

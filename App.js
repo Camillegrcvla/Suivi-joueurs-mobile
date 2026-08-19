@@ -30,6 +30,36 @@ const STATUS_ICON = {
 };
 const initials = (name) => name.split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
 
+const PHASES = [
+  { key: 'blessure', label: 'Blessure', color: '#F0654A' },
+  { key: 'soins', label: 'Soins', color: '#F0654A' },
+  { key: 'reathle', label: 'Réathlé', color: '#F5B942' },
+  { key: 'terrain', label: 'Terrain', color: '#F5B942' },
+  { key: 'contact', label: 'Contact', color: '#56C2E0' },
+  { key: 'match', label: 'Match', color: '#52D17C' },
+];
+const phaseIndex = (key) => { const i = PHASES.findIndex((p) => p.key === key); return i === -1 ? 0 : i; };
+
+function PhaseTrack({ current }) {
+  const idx = phaseIndex(current);
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 6 }}>
+      {PHASES.map((p, i) => (
+        <View key={p.key} style={{ flexDirection: 'row', alignItems: 'center', flex: i < PHASES.length - 1 ? 1 : 0 }}>
+          <View style={[
+            styles.phaseDot,
+            i < idx && { backgroundColor: '#52D17C', borderColor: '#52D17C' },
+            i === idx && { backgroundColor: p.color, borderColor: p.color },
+          ]}>
+            {i < idx && <Text style={{ color: '#0F1F2E', fontSize: 9, fontWeight: '800' }}>✓</Text>}
+          </View>
+          {i < PHASES.length - 1 && <View style={[styles.phaseLine, i < idx && { backgroundColor: '#52D17C' }]} />}
+        </View>
+      ))}
+    </View>
+  );
+}
+
 // Parse une date au format JJ/MM/AAAA ou JJ/MM/AA. Retourne null si invalide.
 function parseDateFR(str) {
   if (!str) return null;
@@ -82,7 +112,7 @@ function matchLabel(m) {
   return m.titre || 'Match';
 }
 
-function MatchRow({ m, onPress }) {
+function MatchRow({ m, onPress, onEdit, onDelete }) {
   return (
     <TouchableOpacity style={styles.card} onPress={onPress}>
       <View style={{ flex: 1 }}>
@@ -95,6 +125,16 @@ function MatchRow({ m, onPress }) {
           {[m.date, m.heure, m.typeMatch].filter(Boolean).join(' · ')}
         </Text>
       </View>
+      {!!onEdit && (
+        <TouchableOpacity onPress={onEdit} style={{ padding: 6 }}>
+          <Text style={{ color: COLORS.muted, fontSize: 16 }}>✎</Text>
+        </TouchableOpacity>
+      )}
+      {!!onDelete && (
+        <TouchableOpacity onPress={onDelete} style={{ padding: 6 }}>
+          <Text style={{ color: '#F0654A', fontSize: 16 }}>🗑</Text>
+        </TouchableOpacity>
+      )}
     </TouchableOpacity>
   );
 }
@@ -472,6 +512,35 @@ function ProfileMenuModal({ visible, onClose, onChangeProfile, onLogout }) {
   );
 }
 
+function PhaseEditor({ blessure, onSave }) {
+  const [phase, setPhase] = useState(blessure.phase || 'blessure');
+  const [label, setLabel] = useState(blessure.prochaineEtapeLabel || '');
+  const [date, setDate] = useState(blessure.prochaineEtapeDate || '');
+
+  useEffect(() => {
+    setPhase(blessure.phase || 'blessure');
+    setLabel(blessure.prochaineEtapeLabel || '');
+    setDate(blessure.prochaineEtapeDate || '');
+  }, [blessure.id]);
+
+  return (
+    <View style={{ marginBottom: 16 }}>
+      <Text style={styles.fieldLabel}>Parcours de reprise</Text>
+      <PhaseTrack current={phase} />
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 12, marginBottom: 12 }}>
+        {PHASES.map((p) => (
+          <Chip key={p.key} label={p.label} active={phase === p.key} onPress={() => setPhase(p.key)} />
+        ))}
+      </View>
+      <TextInput style={[styles.field, { marginBottom: 8 }]} placeholder="Prochaine étape (ex : Réévaluation)" placeholderTextColor={COLORS.muted} value={label} onChangeText={setLabel} />
+      <TextInput style={[styles.field, { marginBottom: 10 }]} placeholder="Quand (ex : aujourd'hui, demain, vendredi, JJ/MM)" placeholderTextColor={COLORS.muted} value={date} onChangeText={setDate} />
+      <TouchableOpacity style={[styles.btnPrimary, { paddingVertical: 10 }]} onPress={() => onSave({ phase, prochaineEtapeLabel: label, prochaineEtapeDate: date })}>
+        <Text style={styles.btnPrimaryText}>Enregistrer le parcours</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
 function AvisMedecinField({ value, onSave }) {
   const [val, setVal] = useState(value || '');
   useEffect(() => { setVal(value || ''); }, [value]);
@@ -493,7 +562,7 @@ function AvisMedecinField({ value, onSave }) {
   );
 }
 
-function BlessureDetailModal({ blessure, onClose, onDelete, onEdit, canEdit, canComment, onSaveAvis, extraContent, onMarkFinished }) {
+function BlessureDetailModal({ blessure, onClose, onDelete, onEdit, canEdit, canComment, onSaveAvis, extraContent, onMarkFinished, onSavePhase }) {
   if (!blessure) return null;
   const b = blessure;
   return (
@@ -565,6 +634,24 @@ function BlessureDetailModal({ blessure, onClose, onDelete, onEdit, canEdit, can
               <Text style={styles.fieldLabel}>Rendez-vous médecin</Text>
               <Text style={{ color: COLORS.text, fontSize: 14 }}>{b.rdvMedecin ? `Oui · rendez-vous le ${b.rdvMedecinDate || '(date à préciser)'}` : 'Non'}</Text>
             </View>
+            {canEdit ? (
+              <PhaseEditor blessure={b} onSave={(data) => onSavePhase(b.id, data)} />
+            ) : (
+              !!b.phase && (
+                <View style={{ marginBottom: 16 }}>
+                  <Text style={styles.fieldLabel}>Parcours de reprise</Text>
+                  <PhaseTrack current={b.phase} />
+                  <Text style={{ color: (PHASES.find((p) => p.key === b.phase) || {}).color || COLORS.text, fontSize: 13, fontWeight: '700', marginTop: 10 }}>
+                    {(PHASES.find((p) => p.key === b.phase) || {}).label}
+                  </Text>
+                  {!!b.prochaineEtapeLabel && (
+                    <Text style={{ color: COLORS.muted, fontSize: 12, marginTop: 2 }}>
+                      Prochaine étape : {b.prochaineEtapeLabel}{b.prochaineEtapeDate ? ` — ${b.prochaineEtapeDate}` : ''}
+                    </Text>
+                  )}
+                </View>
+              )
+            )}
             {canComment ? (
               <AvisMedecinField value={b.avisMedecin} onSave={(val) => onSaveAvis(b.id, val)} />
             ) : (
@@ -701,6 +788,7 @@ export default function App() {
   const [creneauxLoadedFor, setCreneauxLoadedFor] = useState(null);
   const [creneauxForMatch, setCreneauxForMatch] = useState([]);
   const [showAddMatch, setShowAddMatch] = useState(false);
+  const [editingMatchId, setEditingMatchId] = useState(null);
   const [showAccountsScreen, setShowAccountsScreen] = useState(false);
   const [accountsList, setAccountsList] = useState([]);
   const [accountsLoaded, setAccountsLoaded] = useState(false);
@@ -801,7 +889,8 @@ export default function App() {
   // "Changer de profil" : si le compte n'a qu'un seul profil, ça boucle sans jamais
   // pouvoir se déconnecter — on force alors une déconnexion complète à la place.
   const changeProfile = async () => {
-    if (!accountRoles || accountRoles.length <= 1) {
+    const hasChoice = accountRoles && (accountRoles.length > 1 || accountRoles.includes('administrateur'));
+    if (!hasChoice) {
       await logoutAccount();
     } else {
       await AsyncStorage.removeItem('user_role');
@@ -877,6 +966,7 @@ export default function App() {
     setMatchDaySelectedId(null);
     setCreneauxLoadedFor(null);
     setShowAddMatch(false);
+    setEditingMatchId(null);
     setMedecinBlessuresScreen(false);
     setMedecinSelectedBlessureId(null);
     setShowAccountsScreen(false);
@@ -1048,7 +1138,8 @@ export default function App() {
   }
 
   if (!role) {
-    const availableRoles = ROLES.filter((r) => accountRoles.includes(r.key));
+    const isAdminAccount = accountRoles.includes('administrateur');
+    const availableRoles = isAdminAccount ? ROLES : ROLES.filter((r) => accountRoles.includes(r.key));
     if (availableRoles.length === 1) {
       selectRole(availableRoles[0].key);
       return <SafeAreaView style={styles.shell} />;
@@ -1058,7 +1149,14 @@ export default function App() {
         <StatusBar barStyle="light-content" />
         <View style={[styles.center, { justifyContent: 'flex-start', paddingTop: 60 }]}>
           <Text style={styles.heading}>QUI ES-TU ?</Text>
-          <Text style={{ color: COLORS.muted, fontSize: 13, marginTop: 6, marginBottom: 28, textAlign: 'center' }}>Choisis ton profil pour continuer</Text>
+          <Text style={{ color: COLORS.muted, fontSize: 13, marginTop: 6, marginBottom: isAdminAccount ? 8 : 28, textAlign: 'center' }}>
+            {isAdminAccount ? 'Choisis un profil (accès complet Administrateur)' : 'Choisis ton profil pour continuer'}
+          </Text>
+          {isAdminAccount && (
+            <Text style={{ color: COLORS.muted, fontSize: 11, marginBottom: 20, textAlign: 'center' }}>
+              En tant qu'administrateur, tu peux prévisualiser n'importe quel profil pour voir comment il se présente.
+            </Text>
+          )}
           <View style={{ width: '100%', gap: 10 }}>
             {availableRoles.map((r) => (
               <TouchableOpacity key={r.key} style={styles.roleBtn} onPress={() => selectRole(r.key)}>
@@ -1370,6 +1468,7 @@ export default function App() {
           onDelete={(id) => wrap(() => api.deleteBlessure(pin, id))}
           onEdit={(b) => { setSelectedBlessureId(null); setEditingBlessure(b); setShowBlessureForm(true); }}
           onSaveAvis={(id, avisMedecin) => wrap(() => api.updateBlessure(pin, id, { avisMedecin }))}
+          onSavePhase={(id, data) => wrap(() => api.updateBlessure(pin, id, data))}
           onMarkFinished={(b) => wrap(async () => {
             await api.addHistorique(pin, player.id, `Blessure terminée : ${blessureLabel(b)}${b.diagnostic ? ' — ' + b.diagnostic : ''}`, b.date || today());
             await api.deleteBlessure(pin, b.id);
@@ -1705,7 +1804,27 @@ export default function App() {
         <ScrollView style={{ paddingHorizontal: 18, marginTop: 10 }} contentContainerStyle={{ paddingBottom: 40 }}>
           {matches.length === 0 && <Text style={styles.empty}>Aucun match programmé.</Text>}
           {matches.map((m) => (
-            <MatchRow key={m.id} m={m} onPress={() => { setMatchDaySelectedId(m.id); setCreneauxLoadedFor(null); setMatchDayScreen('detail'); }} />
+            <MatchRow
+              key={m.id}
+              m={m}
+              onPress={() => { setMatchDaySelectedId(m.id); setCreneauxLoadedFor(null); setMatchDayScreen('detail'); }}
+              onEdit={() => {
+                setEditingMatchId(m.id);
+                setNewMatchTitre(m.titre || '');
+                setNewMatchDate(m.date || '');
+                setNewMatchHeure(m.heure || '');
+                setNewMatchDomicile(m.equipeDomicile || '');
+                setNewMatchExterieur(m.equipeExterieur || '');
+                setNewMatchType(m.typeMatch || '');
+                setNewMatchLogoDomicile(m.logoDomicile || '');
+                setNewMatchLogoExterieur(m.logoExterieur || '');
+                setShowAddMatch(true);
+              }}
+              onDelete={() => Alert.alert('Supprimer ce match ?', 'Les créneaux de soin associés seront aussi supprimés.', [
+                { text: 'Non', style: 'cancel' },
+                { text: 'Oui, supprimer', style: 'destructive', onPress: () => { (async () => { try { await api.deleteMatch(pin, m.id); await loadMatches(); } catch { setToast('Erreur, réessaie.'); } })(); } },
+              ])}
+            />
           ))}
 
           {activeStatuses.length > 0 && (
@@ -1713,23 +1832,39 @@ export default function App() {
               <Text style={{ color: COLORS.muted, fontSize: 11, fontWeight: '800', textTransform: 'uppercase', marginTop: 22, marginBottom: 10 }}>Récap dispos</Text>
               <View style={styles.summaryRow}>
                 {activeStatuses.map((s) => (
-                  <View key={s.key} style={[styles.summaryPill, { borderColor: s.color }]}>
+                  <TouchableOpacity key={s.key} style={[styles.summaryPill, { borderColor: s.color }]} onPress={() => setSummaryFilter(s)}>
                     <View style={[styles.dot, { backgroundColor: s.color }]} />
                     <Text style={{ color: s.color, fontSize: 11, fontWeight: '700' }}>{s.count} {s.count > 1 ? s.plur : s.sing}</Text>
-                  </View>
+                  </TouchableOpacity>
                 ))}
               </View>
             </>
           )}
         </ScrollView>
-        <TouchableOpacity style={styles.fab} onPress={() => setShowAddMatch(true)}>
+        <TouchableOpacity
+          style={styles.fab}
+          onPress={() => {
+            setEditingMatchId(null);
+            setNewMatchTitre(''); setNewMatchDate(''); setNewMatchHeure('');
+            setNewMatchDomicile(''); setNewMatchExterieur(''); setNewMatchType('');
+            setNewMatchLogoDomicile(''); setNewMatchLogoExterieur('');
+            setShowAddMatch(true);
+          }}
+        >
           <Text style={{ color: '#0F1F2E', fontSize: 26, fontWeight: '800' }}>+</Text>
         </TouchableOpacity>
+        <SummaryListModal
+          visible={!!summaryFilter}
+          statut={summaryFilter}
+          players={players}
+          onClose={() => setSummaryFilter(null)}
+          onOpenPlayer={(id) => { setSummaryFilter(null); setMatchDayScreen(null); setSelectedId(id); setTab('infos'); }}
+        />
         <Modal visible={showAddMatch} animationType="slide" transparent onRequestClose={() => setShowAddMatch(false)}>
           <View style={styles.sheetOverlay}>
             <KeyboardAvoidingView style={[styles.sheet, { maxHeight: '88%' }]} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 14 }}>
-                <Text style={styles.heading}>NOUVEAU MATCH</Text>
+                <Text style={styles.heading}>{editingMatchId ? 'MODIFIER LE MATCH' : 'NOUVEAU MATCH'}</Text>
                 <TouchableOpacity onPress={() => setShowAddMatch(false)}><Text style={{ color: COLORS.muted, fontSize: 24, padding: 4 }}>✕</Text></TouchableOpacity>
               </View>
               <ScrollView>
@@ -1760,7 +1895,7 @@ export default function App() {
                     if (newMatchDomicile.trim() || newMatchExterieur.trim() || newMatchTitre.trim()) {
                       (async () => {
                         try {
-                          await api.addMatch(pin, {
+                          const data = {
                             titre: newMatchTitre.trim(),
                             equipeDomicile: newMatchDomicile.trim(),
                             equipeExterieur: newMatchExterieur.trim(),
@@ -1769,9 +1904,15 @@ export default function App() {
                             typeMatch: newMatchType,
                             logoDomicile: newMatchLogoDomicile.trim(),
                             logoExterieur: newMatchLogoExterieur.trim(),
-                          });
+                          };
+                          if (editingMatchId) {
+                            await api.updateMatch(pin, editingMatchId, data);
+                          } else {
+                            await api.addMatch(pin, data);
+                          }
                           await loadMatches();
                           setShowAddMatch(false);
+                          setEditingMatchId(null);
                           setNewMatchTitre(''); setNewMatchDate(''); setNewMatchHeure('');
                           setNewMatchDomicile(''); setNewMatchExterieur(''); setNewMatchType('');
                           setNewMatchLogoDomicile(''); setNewMatchLogoExterieur('');
@@ -1782,7 +1923,7 @@ export default function App() {
                     }
                   }}
                 >
-                  <Text style={styles.btnPrimaryText}>Ajouter</Text>
+                  <Text style={styles.btnPrimaryText}>{editingMatchId ? 'Enregistrer' : 'Ajouter'}</Text>
                 </TouchableOpacity>
               </ScrollView>
             </KeyboardAvoidingView>
@@ -2231,6 +2372,48 @@ export default function App() {
           </ScrollView>
         )}
 
+        {(() => {
+          const enRetourTerrain = ongoingInjuries.filter(({ blessure: b }) => b.phase && b.phase !== 'blessure');
+          if (enRetourTerrain.length === 0) return null;
+          return (
+            <View style={{ marginTop: 22 }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                <Text style={{ color: COLORS.muted, fontSize: 11, fontWeight: '800', textTransform: 'uppercase' }}>Retour terrain</Text>
+                <Text style={{ color: COLORS.muted, fontSize: 11 }}>{enRetourTerrain.length}</Text>
+              </View>
+              {enRetourTerrain.map(({ player: p, blessure: b }) => {
+                const j = daysSince(b.date);
+                const ph = PHASES.find((x) => x.key === b.phase) || PHASES[0];
+                return (
+                  <TouchableOpacity
+                    key={b.id}
+                    style={[styles.injuryRow, { flexDirection: 'column', alignItems: 'stretch' }]}
+                    onPress={() => { setSelectedId(p.id); setTab('medical'); setMedicalSub('blessures'); setSelectedBlessureId(b.id); }}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      <Avatar player={p} size={38} />
+                      <View style={{ flex: 1, marginLeft: 10 }}>
+                        <Text style={{ color: COLORS.text, fontWeight: '700', fontSize: 14 }} numberOfLines={1}>{p.name}</Text>
+                        <Text style={{ color: COLORS.muted, fontSize: 11, marginTop: 2 }} numberOfLines={1}>{blessureLabel(b)}{j !== null ? ` · J+${j}` : ''}</Text>
+                      </View>
+                      {!!b.prochaineEtapeLabel && (
+                        <View style={{ alignItems: 'flex-end' }}>
+                          <Text style={{ color: COLORS.muted, fontSize: 10 }}>Prochaine étape</Text>
+                          <Text style={{ color: ph.color, fontSize: 12, fontWeight: '700' }}>{b.prochaineEtapeDate || b.prochaineEtapeLabel}</Text>
+                        </View>
+                      )}
+                    </View>
+                    <View style={{ marginTop: 4 }}>
+                      <Text style={{ color: ph.color, fontSize: 11, fontWeight: '800' }}>{ph.label.toUpperCase()}</Text>
+                      <PhaseTrack current={b.phase} />
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          );
+        })()}
+
         {ongoingInjuries.length > 0 && (
           <View style={{ marginTop: 22 }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
@@ -2379,6 +2562,8 @@ const styles = StyleSheet.create({
   bellBadge: { position: 'absolute', top: -2, right: -2, backgroundColor: '#F0654A', borderRadius: 9, minWidth: 18, height: 18, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3 },
   searchBar: { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.surface2, borderWidth: 1, borderColor: COLORS.border, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12 },
   statCard: { width: 92, backgroundColor: COLORS.surface, borderWidth: 1, borderRadius: 12, padding: 12, alignItems: 'flex-start' },
+  phaseDot: { width: 14, height: 14, borderRadius: 7, borderWidth: 2, borderColor: COLORS.border, backgroundColor: COLORS.surface2, alignItems: 'center', justifyContent: 'center' },
+  phaseLine: { height: 2, flex: 1, backgroundColor: COLORS.border },
   statPill: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: COLORS.surface, borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10 },
   newTag: { backgroundColor: '#F0654A22', borderRadius: 5, paddingHorizontal: 5, paddingVertical: 2 },
   statIconCircle: { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },

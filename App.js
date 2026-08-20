@@ -40,6 +40,35 @@ const PHASES = [
 ];
 const phaseIndex = (key) => { const i = PHASES.findIndex((p) => p.key === key); return i === -1 ? 0 : i; };
 
+function RetourTerrainRow({ player: p, blessure: b, onPress }) {
+  const j = daysSince(b.date);
+  const ph = PHASES.find((x) => x.key === b.phase) || PHASES[0];
+  return (
+    <TouchableOpacity
+      style={[styles.injuryRow, { flexDirection: 'column', alignItems: 'stretch' }]}
+      onPress={onPress}
+    >
+      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+        <Avatar player={p} size={38} />
+        <View style={{ flex: 1, marginLeft: 10 }}>
+          <Text style={{ color: COLORS.text, fontWeight: '700', fontSize: 14 }} numberOfLines={1}>{p.name}</Text>
+          <Text style={{ color: COLORS.muted, fontSize: 11, marginTop: 2 }} numberOfLines={1}>{blessureLabel(b)}{j !== null ? ` · J+${j}` : ''}</Text>
+        </View>
+        {!!b.prochaineEtapeLabel && (
+          <View style={{ alignItems: 'flex-end' }}>
+            <Text style={{ color: COLORS.muted, fontSize: 10 }}>Prochaine étape</Text>
+            <Text style={{ color: ph.color, fontSize: 12, fontWeight: '700' }}>{b.prochaineEtapeDate || b.prochaineEtapeLabel}</Text>
+          </View>
+        )}
+      </View>
+      <View style={{ marginTop: 4 }}>
+        <Text style={{ color: ph.color, fontSize: 11, fontWeight: '800' }}>{ph.label.toUpperCase()}</Text>
+        <PhaseTrack current={b.phase} />
+      </View>
+    </TouchableOpacity>
+  );
+}
+
 function PhaseTrack({ current }) {
   const idx = phaseIndex(current);
   return (
@@ -823,6 +852,7 @@ export default function App() {
   const [notifLastSeen, setNotifLastSeen] = useState(null);
   const [notifLastSeenReady, setNotifLastSeenReady] = useState(false);
   const [showNotifScreen, setShowNotifScreen] = useState(false);
+  const [showRetourTerrainScreen, setShowRetourTerrainScreen] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [identityCandidateId, setIdentityCandidateId] = useState(null);
   const [identityPinInput, setIdentityPinInput] = useState('');
@@ -978,6 +1008,7 @@ export default function App() {
     setShowAccountsScreen(false);
     setShowAddAccount(false);
     setShowNotifScreen(false);
+    setShowRetourTerrainScreen(false);
     setShowProfileMenu(false);
   };
 
@@ -990,6 +1021,7 @@ export default function App() {
       }
       if (pendingBlessurePlayerId) { setPendingBlessurePlayerId(null); return true; }
       if (showNotifScreen) { setShowNotifScreen(false); return true; }
+      if (showRetourTerrainScreen) { setShowRetourTerrainScreen(false); return true; }
       if (showProfileMenu) { setShowProfileMenu(false); return true; }
       if (showAddAccount) { setShowAddAccount(false); return true; }
       if (showAccountsScreen) { setShowAccountsScreen(false); return true; }
@@ -1009,7 +1041,7 @@ export default function App() {
       return false; // à l'accueil : laisse le comportement par défaut (quitter l'appli)
     });
     return () => sub.remove();
-  }, [role, joueurScreen, identityCandidateId, showAdd, showAddMatch, showQuickBlessure, showBlessureForm, selectedBlessureId, showStatusPicker, summaryFilter, selectedId, showPlayersList, pendingBlessurePlayerId, matchDayScreen, medecinBlessuresScreen, medecinSelectedBlessureId, showAccountsScreen, showAddAccount, showNotifScreen, showProfileMenu]);
+  }, [role, joueurScreen, identityCandidateId, showAdd, showAddMatch, showQuickBlessure, showBlessureForm, selectedBlessureId, showStatusPicker, summaryFilter, selectedId, showPlayersList, pendingBlessurePlayerId, matchDayScreen, medecinBlessuresScreen, medecinSelectedBlessureId, showAccountsScreen, showAddAccount, showNotifScreen, showProfileMenu, showRetourTerrainScreen]);
 
   const load = async (activePin) => {
     setLoading(true);
@@ -2163,6 +2195,31 @@ export default function App() {
   const roleLabel = (ROLES.find((r) => r.key === role) || {}).label || '';
   const bellCount = unseenNotifCount;
 
+  // ---------- RETOUR TERRAIN SCREEN (liste complète) ----------
+  if (showRetourTerrainScreen) {
+    const enRetourTerrain = ongoingInjuries.filter(({ blessure: b }) => b.phase && b.phase !== 'blessure');
+    return (
+      <SafeAreaView style={styles.shell}>
+        <StatusBar barStyle="light-content" />
+        <View style={styles.detailTop}>
+          <TouchableOpacity onPress={() => setShowRetourTerrainScreen(false)} style={styles.iconBtn}><Text style={{ color: COLORS.text, fontSize: 30, fontWeight: '700' }}>‹</Text></TouchableOpacity>
+          <Text style={styles.heading}>RETOUR TERRAIN</Text>
+        </View>
+        <ScrollView style={{ padding: 18 }}>
+          {enRetourTerrain.length === 0 && <Text style={styles.empty}>Aucun joueur en retour terrain.</Text>}
+          {enRetourTerrain.map(({ player: p, blessure: b }) => (
+            <RetourTerrainRow
+              key={b.id}
+              player={p}
+              blessure={b}
+              onPress={() => { setShowRetourTerrainScreen(false); setSelectedId(p.id); setTab('medical'); setMedicalSub('blessures'); setSelectedBlessureId(b.id); }}
+            />
+          ))}
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
   // ---------- NOTIFICATIONS SCREEN ----------
   if (showNotifScreen) {
     if (!activitesLoaded) loadActivites();
@@ -2389,35 +2446,19 @@ export default function App() {
                 <Text style={{ color: COLORS.muted, fontSize: 11, fontWeight: '800', textTransform: 'uppercase' }}>Retour terrain</Text>
                 <Text style={{ color: COLORS.muted, fontSize: 11 }}>{enRetourTerrain.length}</Text>
               </View>
-              {enRetourTerrain.map(({ player: p, blessure: b }) => {
-                const j = daysSince(b.date);
-                const ph = PHASES.find((x) => x.key === b.phase) || PHASES[0];
-                return (
-                  <TouchableOpacity
-                    key={b.id}
-                    style={[styles.injuryRow, { flexDirection: 'column', alignItems: 'stretch' }]}
-                    onPress={() => { setSelectedId(p.id); setTab('medical'); setMedicalSub('blessures'); setSelectedBlessureId(b.id); }}
-                  >
-                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                      <Avatar player={p} size={38} />
-                      <View style={{ flex: 1, marginLeft: 10 }}>
-                        <Text style={{ color: COLORS.text, fontWeight: '700', fontSize: 14 }} numberOfLines={1}>{p.name}</Text>
-                        <Text style={{ color: COLORS.muted, fontSize: 11, marginTop: 2 }} numberOfLines={1}>{blessureLabel(b)}{j !== null ? ` · J+${j}` : ''}</Text>
-                      </View>
-                      {!!b.prochaineEtapeLabel && (
-                        <View style={{ alignItems: 'flex-end' }}>
-                          <Text style={{ color: COLORS.muted, fontSize: 10 }}>Prochaine étape</Text>
-                          <Text style={{ color: ph.color, fontSize: 12, fontWeight: '700' }}>{b.prochaineEtapeDate || b.prochaineEtapeLabel}</Text>
-                        </View>
-                      )}
-                    </View>
-                    <View style={{ marginTop: 4 }}>
-                      <Text style={{ color: ph.color, fontSize: 11, fontWeight: '800' }}>{ph.label.toUpperCase()}</Text>
-                      <PhaseTrack current={b.phase} />
-                    </View>
-                  </TouchableOpacity>
-                );
-              })}
+              {enRetourTerrain.slice(0, 3).map(({ player: p, blessure: b }) => (
+                <RetourTerrainRow
+                  key={b.id}
+                  player={p}
+                  blessure={b}
+                  onPress={() => { setSelectedId(p.id); setTab('medical'); setMedicalSub('blessures'); setSelectedBlessureId(b.id); }}
+                />
+              ))}
+              {enRetourTerrain.length > 3 && (
+                <TouchableOpacity style={{ paddingVertical: 10, alignItems: 'center' }} onPress={() => setShowRetourTerrainScreen(true)}>
+                  <Text style={{ color: '#3DA9FC', fontSize: 13, fontWeight: '700' }}>Voir plus ({enRetourTerrain.length - 3})</Text>
+                </TouchableOpacity>
+              )}
             </View>
           );
         })()}

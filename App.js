@@ -290,7 +290,7 @@ function Chip({ label, active, onPress }) {
   );
 }
 
-function BlessureFormModal({ visible, onClose, onSave, initial, role }) {
+function BlessureFormModal({ visible, onClose, onSave, initial, role, currentPlayerStatus }) {
   const isEdit = !!initial;
   const [date, setDate] = useState('');
   const [zone, setZone] = useState('');
@@ -337,6 +337,7 @@ function BlessureFormModal({ visible, onClose, onSave, initial, role }) {
       setSuspicionCommotion(!!initial?.suspicionCommotion);
       setSymptomes(initial?.symptomes ? initial.symptomes.split(', ').filter(Boolean) : []);
       setSymptomesAutre(initial?.symptomesAutre || '');
+      setNewStatus(initial ? (currentPlayerStatus || 'indisponible') : 'indisponible');
     }
   }, [visible, initial]);
 
@@ -448,9 +449,9 @@ function BlessureFormModal({ visible, onClose, onSave, initial, role }) {
               </>
             )}
 
-            {!isEdit && STATUS_CHOICE_ROLES.includes(role) && (
+            {STATUS_CHOICE_ROLES.includes(role) && (
               <>
-                <Text style={styles.fieldLabel}>Statut du joueur suite à cette blessure</Text>
+                <Text style={styles.fieldLabel}>Statut du joueur{isEdit ? '' : ' suite à cette blessure'}</Text>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
                   {STATUTS.map((s) => (
                     <Chip key={s.key} label={s.label} active={newStatus === s.key} onPress={() => setNewStatus(s.key)} />
@@ -460,9 +461,9 @@ function BlessureFormModal({ visible, onClose, onSave, initial, role }) {
             )}
 
             <Text style={{ color: COLORS.muted, fontSize: 12, marginBottom: 12 }}>
-              {isEdit
+              {STATUS_CHOICE_ROLES.includes(role)
                 ? "L'ajout de photos ou de compte-rendu d'examen arrive dans une prochaine mise à jour."
-                : STATUS_CHOICE_ROLES.includes(role)
+                : isEdit
                   ? "L'ajout de photos ou de compte-rendu d'examen arrive dans une prochaine mise à jour."
                   : "L'ajout de photos ou de compte-rendu d'examen arrive dans une prochaine mise à jour. Dès l'enregistrement, le statut du joueur passera automatiquement à « Indisponible »."}
             </Text>
@@ -516,6 +517,7 @@ function PhaseEditor({ blessure, onSave }) {
   const [phase, setPhase] = useState(blessure.phase || 'blessure');
   const [label, setLabel] = useState(blessure.prochaineEtapeLabel || '');
   const [date, setDate] = useState(blessure.prochaineEtapeDate || '');
+  const [justSaved, setJustSaved] = useState(false);
 
   useEffect(() => {
     setPhase(blessure.phase || 'blessure');
@@ -529,14 +531,18 @@ function PhaseEditor({ blessure, onSave }) {
       <PhaseTrack current={phase} />
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 12, marginBottom: 12 }}>
         {PHASES.map((p) => (
-          <Chip key={p.key} label={p.label} active={phase === p.key} onPress={() => setPhase(p.key)} />
+          <Chip key={p.key} label={p.label} active={phase === p.key} onPress={() => { setPhase(p.key); setJustSaved(false); }} />
         ))}
       </View>
-      <TextInput style={[styles.field, { marginBottom: 8 }]} placeholder="Prochaine étape (ex : Réévaluation)" placeholderTextColor={COLORS.muted} value={label} onChangeText={setLabel} />
-      <TextInput style={[styles.field, { marginBottom: 10 }]} placeholder="Quand (ex : aujourd'hui, demain, vendredi, JJ/MM)" placeholderTextColor={COLORS.muted} value={date} onChangeText={setDate} />
-      <TouchableOpacity style={[styles.btnPrimary, { paddingVertical: 10 }]} onPress={() => onSave({ phase, prochaineEtapeLabel: label, prochaineEtapeDate: date })}>
+      <TextInput style={[styles.field, { marginBottom: 8 }]} placeholder="Prochaine étape (ex : Réévaluation)" placeholderTextColor={COLORS.muted} value={label} onChangeText={(t) => { setLabel(t); setJustSaved(false); }} />
+      <TextInput style={[styles.field, { marginBottom: 10 }]} placeholder="Quand (ex : aujourd'hui, demain, vendredi, JJ/MM)" placeholderTextColor={COLORS.muted} value={date} onChangeText={(t) => { setDate(t); setJustSaved(false); }} />
+      <TouchableOpacity
+        style={[styles.btnPrimary, { paddingVertical: 10 }]}
+        onPress={() => { onSave({ phase, prochaineEtapeLabel: label, prochaineEtapeDate: date }); setJustSaved(true); }}
+      >
         <Text style={styles.btnPrimaryText}>Enregistrer le parcours</Text>
       </TouchableOpacity>
+      {justSaved && <Text style={{ color: '#52D17C', fontSize: 12, marginTop: 8, fontWeight: '700' }}>✓ Parcours enregistré</Text>}
     </View>
   );
 }
@@ -1444,6 +1450,7 @@ export default function App() {
           visible={showBlessureForm}
           initial={editingBlessure}
           role={role}
+          currentPlayerStatus={player.status}
           onClose={() => { setShowBlessureForm(false); setEditingBlessure(null); }}
           onSave={(data) => {
             const wasEdit = !!editingBlessure;
@@ -1453,6 +1460,7 @@ export default function App() {
             wrap(async () => {
               if (wasEdit) {
                 await api.updateBlessure(pin, editingBlessure.id, blessureData);
+                if (newStatus) await api.updatePlayer(pin, player.id, { status: newStatus });
               } else {
                 await api.addBlessure(pin, player.id, blessureData);
                 await api.updatePlayer(pin, player.id, { status: newStatus || 'indisponible' });

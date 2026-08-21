@@ -183,7 +183,7 @@ function matchLabel(m) {
   return m.titre || 'Match';
 }
 
-function MatchRow({ m, onPress, onEdit, onDelete }) {
+function MatchRow({ m, onPress, onEdit, onDelete, onArchive, onUnarchive }) {
   return (
     <TouchableOpacity style={styles.card} onPress={onPress}>
       <View style={{ flex: 1 }}>
@@ -199,6 +199,16 @@ function MatchRow({ m, onPress, onEdit, onDelete }) {
       {!!onEdit && (
         <TouchableOpacity onPress={onEdit} style={{ padding: 6 }}>
           <Text style={{ color: COLORS.muted, fontSize: 16 }}>✎</Text>
+        </TouchableOpacity>
+      )}
+      {!!onArchive && (
+        <TouchableOpacity onPress={onArchive} style={{ padding: 6 }}>
+          <Text style={{ color: COLORS.muted, fontSize: 16 }}>📦</Text>
+        </TouchableOpacity>
+      )}
+      {!!onUnarchive && (
+        <TouchableOpacity onPress={onUnarchive} style={{ padding: 6 }}>
+          <Text style={{ color: '#3DA9FC', fontSize: 16 }}>↩</Text>
         </TouchableOpacity>
       )}
       {!!onDelete && (
@@ -344,6 +354,10 @@ function generateSlots(startHour, startMinute, endHour, endMinute, step) {
   return slots;
 }
 const MATCH_SLOTS = generateSlots(13, 30, 16, 0, 5);
+const JOURS_SEMAINE = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche'];
+const MOIS = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
+const JOURS_NUM = Array.from({ length: 31 }, (_, i) => String(i + 1));
+const ANNEES_MATCH = (() => { const y = new Date().getFullYear(); return [y - 1, y, y + 1, y + 2].map(String); })();
 
 // Formate une saisie de chiffres en JJ/MM/AAAA au fur et à mesure de la frappe
 function formatDateInput(raw) {
@@ -916,6 +930,10 @@ export default function App() {
   const [newMatchType, setNewMatchType] = useState('');
   const [newMatchLogoDomicile, setNewMatchLogoDomicile] = useState('');
   const [newMatchLogoExterieur, setNewMatchLogoExterieur] = useState('');
+  const [newMatchJourSemaine, setNewMatchJourSemaine] = useState('');
+  const [newMatchJourNum, setNewMatchJourNum] = useState('');
+  const [newMatchMois, setNewMatchMois] = useState('');
+  const [newMatchAnnee, setNewMatchAnnee] = useState('');
 
   // Jour de match — joueur
   const [joueurIdentityId, setJoueurIdentityId] = useState(null);
@@ -1118,6 +1136,7 @@ export default function App() {
       if (selectedId) { setSelectedId(null); return true; }
       if (showPlayersList) { setShowPlayersList(false); load(pin); return true; }
       if (matchDayScreen === 'detail') { setMatchDayScreen('list'); return true; }
+      if (matchDayScreen === 'historique') { setMatchDayScreen('list'); return true; }
       if (matchDayScreen === 'list') { setMatchDayScreen(null); return true; }
       return false; // à l'accueil : laisse le comportement par défaut (quitter l'appli)
     });
@@ -1519,8 +1538,8 @@ export default function App() {
           <Text style={{ color: COLORS.muted, fontSize: 13, marginTop: 6 }}>Choisis un match pour réserver ton créneau de soin</Text>
         </View>
         <ScrollView style={{ paddingHorizontal: 18, marginTop: 10 }}>
-          {matches.length === 0 && <Text style={styles.empty}>Aucun match programmé.</Text>}
-          {matches.map((m) => (
+          {matches.filter((m) => !m.archive).length === 0 && <Text style={styles.empty}>Aucun match programmé.</Text>}
+          {matches.filter((m) => !m.archive).map((m) => (
             <MatchRow
               key={m.id}
               m={m}
@@ -1925,19 +1944,55 @@ export default function App() {
     );
   }
 
-  if (matchDayScreen === 'list') {
+  if (matchDayScreen === 'historique') {
+    const archivedMatches = matches.filter((m) => m.archive);
     return (
       <SafeAreaView style={styles.shell}>
         <StatusBar barStyle="light-content" />
         <View style={styles.top}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-            <TouchableOpacity onPress={() => setMatchDayScreen(null)} style={styles.iconBtn}><Text style={{ color: COLORS.text, fontSize: 30, fontWeight: '700' }}>‹</Text></TouchableOpacity>
-            <Text style={styles.heading}>JOUR DE MATCH</Text>
+            <TouchableOpacity onPress={() => setMatchDayScreen('list')} style={styles.iconBtn}><Text style={{ color: COLORS.text, fontSize: 30, fontWeight: '700' }}>‹</Text></TouchableOpacity>
+            <Text style={styles.heading}>HISTORIQUE DES MATCHS</Text>
           </View>
         </View>
         <ScrollView style={{ paddingHorizontal: 18, marginTop: 10 }} contentContainerStyle={{ paddingBottom: 40 }}>
-          {matches.length === 0 && <Text style={styles.empty}>Aucun match programmé.</Text>}
-          {matches.map((m) => (
+          {archivedMatches.length === 0 && <Text style={styles.empty}>Aucun match archivé.</Text>}
+          {archivedMatches.map((m) => (
+            <MatchRow
+              key={m.id}
+              m={m}
+              onPress={() => { setMatchDaySelectedId(m.id); setCreneauxLoadedFor(null); setMatchDayScreen('detail'); }}
+              onUnarchive={() => (async () => { try { await api.updateMatch(pin, m.id, { archive: false }); await loadMatches(); } catch { setToast('Erreur, réessaie.'); } })()}
+              onDelete={() => Alert.alert('Supprimer ce match ?', 'Les créneaux de soin associés seront aussi supprimés.', [
+                { text: 'Non', style: 'cancel' },
+                { text: 'Oui, supprimer', style: 'destructive', onPress: () => { (async () => { try { await api.deleteMatch(pin, m.id); await loadMatches(); } catch { setToast('Erreur, réessaie.'); } })(); } },
+              ])}
+            />
+          ))}
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
+  if (matchDayScreen === 'list') {
+    const activeMatches = matches.filter((m) => !m.archive);
+    return (
+      <SafeAreaView style={styles.shell}>
+        <StatusBar barStyle="light-content" />
+        <View style={styles.top}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <TouchableOpacity onPress={() => setMatchDayScreen(null)} style={styles.iconBtn}><Text style={{ color: COLORS.text, fontSize: 30, fontWeight: '700' }}>‹</Text></TouchableOpacity>
+              <Text style={styles.heading}>JOUR DE MATCH</Text>
+            </View>
+            <TouchableOpacity onPress={() => setMatchDayScreen('historique')}>
+              <Text style={{ color: '#3DA9FC', fontSize: 12, fontWeight: '700' }}>Historique</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+        <ScrollView style={{ paddingHorizontal: 18, marginTop: 10 }} contentContainerStyle={{ paddingBottom: 40 }}>
+          {activeMatches.length === 0 && <Text style={styles.empty}>Aucun match programmé.</Text>}
+          {activeMatches.map((m) => (
             <MatchRow
               key={m.id}
               m={m}
@@ -1952,11 +2007,16 @@ export default function App() {
                 setNewMatchType(m.typeMatch || '');
                 setNewMatchLogoDomicile(m.logoDomicile || '');
                 setNewMatchLogoExterieur(m.logoExterieur || '');
+                setNewMatchJourSemaine(''); setNewMatchJourNum(''); setNewMatchMois(''); setNewMatchAnnee('');
                 setShowAddMatch(true);
               }}
               onDelete={() => Alert.alert('Supprimer ce match ?', 'Les créneaux de soin associés seront aussi supprimés.', [
                 { text: 'Non', style: 'cancel' },
                 { text: 'Oui, supprimer', style: 'destructive', onPress: () => { (async () => { try { await api.deleteMatch(pin, m.id); await loadMatches(); } catch { setToast('Erreur, réessaie.'); } })(); } },
+              ])}
+              onArchive={() => Alert.alert('Archiver ce match ?', 'Il sera retiré de la liste active et retrouvable dans l\'historique des matchs.', [
+                { text: 'Non', style: 'cancel' },
+                { text: 'Oui, archiver', onPress: () => { (async () => { try { await api.updateMatch(pin, m.id, { archive: true }); await loadMatches(); } catch { setToast('Erreur, réessaie.'); } })(); } },
               ])}
             />
           ))}
@@ -1982,6 +2042,7 @@ export default function App() {
             setNewMatchTitre(''); setNewMatchDate(''); setNewMatchHeure('');
             setNewMatchDomicile(''); setNewMatchExterieur(''); setNewMatchType('');
             setNewMatchLogoDomicile(''); setNewMatchLogoExterieur('');
+            setNewMatchJourSemaine(''); setNewMatchJourNum(''); setNewMatchMois(''); setNewMatchAnnee('');
             setShowAddMatch(true);
           }}
         >
@@ -2012,15 +2073,47 @@ export default function App() {
                 <Text style={styles.fieldLabel}>Logo extérieur (lien image, optionnel)</Text>
                 <TextInput style={[styles.field, { marginBottom: 10 }]} placeholder="https://…" placeholderTextColor={COLORS.muted} value={newMatchLogoExterieur} onChangeText={setNewMatchLogoExterieur} autoCapitalize="none" />
 
-                <Text style={styles.fieldLabel}>Date</Text>
-                <TextInput style={[styles.field, { marginBottom: 10 }]} placeholder="Dimanche 6 septembre 2026" placeholderTextColor={COLORS.muted} value={newMatchDate} onChangeText={setNewMatchDate} />
+                <Text style={styles.fieldLabel}>Jour de la semaine</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, marginBottom: 10 }}>
+                  {JOURS_SEMAINE.map((j) => (
+                    <Chip key={j} label={j} active={newMatchJourSemaine === j} onPress={() => setNewMatchJourSemaine(j)} />
+                  ))}
+                </ScrollView>
+                <Text style={styles.fieldLabel}>Jour du mois</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, marginBottom: 10 }}>
+                  {JOURS_NUM.map((j) => (
+                    <Chip key={j} label={j} active={newMatchJourNum === j} onPress={() => setNewMatchJourNum(j)} />
+                  ))}
+                </ScrollView>
+                <Text style={styles.fieldLabel}>Mois</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, marginBottom: 10 }}>
+                  {MOIS.map((m) => (
+                    <Chip key={m} label={m} active={newMatchMois === m} onPress={() => setNewMatchMois(m)} />
+                  ))}
+                </ScrollView>
+                <Text style={styles.fieldLabel}>Année</Text>
+                <View style={{ flexDirection: 'row', gap: 6, marginBottom: 10 }}>
+                  {ANNEES_MATCH.map((a) => (
+                    <Chip key={a} label={a} active={newMatchAnnee === a} onPress={() => setNewMatchAnnee(a)} />
+                  ))}
+                </View>
+
                 <Text style={styles.fieldLabel}>Heure</Text>
-                <TextInput style={[styles.field, { marginBottom: 10 }]} placeholder="15:00" placeholderTextColor={COLORS.muted} value={newMatchHeure} onChangeText={setNewMatchHeure} />
+                <TextInput
+                  style={[styles.field, { marginBottom: 10 }]}
+                  placeholder="15:00"
+                  placeholderTextColor={COLORS.muted}
+                  value={newMatchHeure}
+                  onChangeText={(t) => setNewMatchHeure(formatHeureInput(t))}
+                  keyboardType="number-pad"
+                  maxLength={5}
+                />
 
                 <Text style={styles.fieldLabel}>Type</Text>
-                <View style={{ flexDirection: 'row', gap: 6, marginBottom: 16 }}>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 16 }}>
                   <Chip label="Match aller" active={newMatchType === 'Match aller'} onPress={() => setNewMatchType('Match aller')} />
                   <Chip label="Match retour" active={newMatchType === 'Match retour'} onPress={() => setNewMatchType('Match retour')} />
+                  <Chip label="Match amical" active={newMatchType === 'Match amical'} onPress={() => setNewMatchType('Match amical')} />
                 </View>
 
                 <TouchableOpacity
@@ -2029,11 +2122,16 @@ export default function App() {
                     if (newMatchDomicile.trim() || newMatchExterieur.trim() || newMatchTitre.trim()) {
                       (async () => {
                         try {
+                          const dateConstruite = [
+                            newMatchJourSemaine,
+                            [newMatchJourNum, newMatchMois.toLowerCase()].filter(Boolean).join(' '),
+                            newMatchAnnee,
+                          ].filter(Boolean).join(' ');
                           const data = {
                             titre: newMatchTitre.trim(),
                             equipeDomicile: newMatchDomicile.trim(),
                             equipeExterieur: newMatchExterieur.trim(),
-                            date: newMatchDate.trim(),
+                            date: dateConstruite,
                             heure: newMatchHeure.trim(),
                             typeMatch: newMatchType,
                             logoDomicile: newMatchLogoDomicile.trim(),
@@ -2050,6 +2148,7 @@ export default function App() {
                           setNewMatchTitre(''); setNewMatchDate(''); setNewMatchHeure('');
                           setNewMatchDomicile(''); setNewMatchExterieur(''); setNewMatchType('');
                           setNewMatchLogoDomicile(''); setNewMatchLogoExterieur('');
+                          setNewMatchJourSemaine(''); setNewMatchJourNum(''); setNewMatchMois(''); setNewMatchAnnee('');
                         } catch { setToast('Erreur, réessaie.'); }
                       })();
                     } else {
@@ -2565,7 +2664,13 @@ export default function App() {
             <View style={styles.sectionCard}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
                 <Text style={{ color: COLORS.muted, fontSize: 11, fontWeight: '800', textTransform: 'uppercase' }}>Retour terrain</Text>
-                <Text style={{ color: COLORS.muted, fontSize: 11 }}>{enRetourTerrain.length}</Text>
+                {enRetourTerrain.length > 3 ? (
+                  <TouchableOpacity onPress={() => setShowRetourTerrainScreen(true)}>
+                    <Text style={{ color: '#3DA9FC', fontSize: 12, fontWeight: '700' }}>Voir tout ({enRetourTerrain.length})</Text>
+                  </TouchableOpacity>
+                ) : (
+                  <Text style={{ color: COLORS.muted, fontSize: 11 }}>{enRetourTerrain.length}</Text>
+                )}
               </View>
               {enRetourTerrain.slice(0, 3).map(({ player: p, blessure: b }) => (
                 <RetourTerrainRow
@@ -2575,11 +2680,6 @@ export default function App() {
                   onPress={() => { setSelectedId(p.id); setTab('medical'); setMedicalSub('blessures'); setSelectedBlessureId(b.id); }}
                 />
               ))}
-              {enRetourTerrain.length > 3 && (
-                <TouchableOpacity style={{ paddingVertical: 10, alignItems: 'center' }} onPress={() => setShowRetourTerrainScreen(true)}>
-                  <Text style={{ color: '#3DA9FC', fontSize: 13, fontWeight: '700' }}>Voir plus ({enRetourTerrain.length - 3})</Text>
-                </TouchableOpacity>
-              )}
             </View>
           );
         })()}
@@ -2651,7 +2751,13 @@ export default function App() {
           <View style={styles.sectionCard}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
               <Text style={{ color: COLORS.muted, fontSize: 11, fontWeight: '800', textTransform: 'uppercase' }}>Blessures en cours</Text>
-              <Text style={{ color: COLORS.muted, fontSize: 11 }}>{ongoingInjuries.length}</Text>
+              {ongoingInjuries.length > 3 ? (
+                <TouchableOpacity onPress={() => setShowInjuriesScreen(true)}>
+                  <Text style={{ color: '#3DA9FC', fontSize: 12, fontWeight: '700' }}>Voir tout ({ongoingInjuries.length})</Text>
+                </TouchableOpacity>
+              ) : (
+                <Text style={{ color: COLORS.muted, fontSize: 11 }}>{ongoingInjuries.length}</Text>
+              )}
             </View>
             {ongoingInjuries.slice(0, 3).map(({ player: p, blessure: b }) => (
               <InjuryRow
@@ -2661,11 +2767,6 @@ export default function App() {
                 onPress={() => { setSelectedId(p.id); setTab('medical'); setMedicalSub('blessures'); }}
               />
             ))}
-            {ongoingInjuries.length > 3 && (
-              <TouchableOpacity style={{ paddingVertical: 10, alignItems: 'center' }} onPress={() => setShowInjuriesScreen(true)}>
-                <Text style={{ color: '#3DA9FC', fontSize: 13, fontWeight: '700' }}>Voir plus ({ongoingInjuries.length - 3})</Text>
-              </TouchableOpacity>
-            )}
           </View>
         )}
 

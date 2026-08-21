@@ -2529,13 +2529,15 @@ export default function App() {
           </TouchableOpacity>
         </View>
 
-        <Text style={{ color: COLORS.text, fontSize: 22, fontWeight: '800', marginTop: 18 }}>Bonjour</Text>
-        <Text style={{ color: COLORS.muted, fontSize: 13, marginTop: 2, marginBottom: 16 }}>Espace {roleLabel.toLowerCase()}</Text>
-
-        <TouchableOpacity style={styles.searchBar} onPress={() => setShowPlayersList(true)}>
-          <Text style={{ color: COLORS.muted }}>⌕</Text>
-          <Text style={{ color: COLORS.muted, fontSize: 13, marginLeft: 8 }}>Rechercher un joueur</Text>
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 18 }}>
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: COLORS.text, fontSize: 22, fontWeight: '800' }} numberOfLines={1}>Bonjour{accountNom ? ` ${accountNom.split(' ')[0]}` : ''}</Text>
+            <Text style={{ color: COLORS.muted, fontSize: 13, marginTop: 2 }}>Espace {roleLabel.toLowerCase()}</Text>
+          </View>
+          <TouchableOpacity style={styles.searchIconBtn} onPress={() => setShowPlayersList(true)}>
+            <Text style={{ color: COLORS.muted, fontSize: 18 }}>⌕</Text>
+          </TouchableOpacity>
+        </View>
 
         {activeStatuses.length > 0 && (
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, marginTop: 16 }}>
@@ -2782,6 +2784,7 @@ const styles = StyleSheet.create({
   alertBanner: { backgroundColor: '#F0654A18', borderWidth: 1, borderColor: '#F0654A', borderRadius: 10, padding: 12, marginBottom: 14 },
   menuBtn: { backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border, borderRadius: 12, paddingVertical: 16, paddingHorizontal: 16, alignItems: 'center' },
   iconRoundBtn: { width: 38, height: 38, borderRadius: 19, backgroundColor: COLORS.surface2, alignItems: 'center', justifyContent: 'center' },
+  searchIconBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: COLORS.surface2, borderWidth: 1, borderColor: COLORS.border, alignItems: 'center', justifyContent: 'center', marginLeft: 12 },
   bellBadge: { position: 'absolute', top: -2, right: -2, backgroundColor: '#F0654A', borderRadius: 9, minWidth: 18, height: 18, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3 },
   searchBar: { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.surface2, borderWidth: 1, borderColor: COLORS.border, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12 },
   statCard: { width: 92, backgroundColor: COLORS.surface, borderWidth: 1, borderRadius: 12, padding: 12, alignItems: 'flex-start' },

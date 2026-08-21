@@ -65,25 +65,37 @@ function RetourTerrainRow({ player: p, blessure: b, onPress }) {
   const ph = PHASES.find((x) => x.key === b.phase) || PHASES[0];
   return (
     <TouchableOpacity
-      style={[styles.injuryRow, { flexDirection: 'column', alignItems: 'stretch' }]}
+      style={[styles.injuryRow, { flexDirection: 'row', alignItems: 'stretch' }]}
       onPress={onPress}
     >
-      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-        <Avatar player={p} size={38} />
-        <View style={{ flex: 1, marginLeft: 10 }}>
-          <Text style={{ color: COLORS.text, fontWeight: '700', fontSize: 14 }} numberOfLines={1}>{p.name}</Text>
-          <Text style={{ color: COLORS.muted, fontSize: 11, marginTop: 2 }} numberOfLines={1}>{blessureLabel(b)}{j !== null ? ` · J+${j}` : ''}</Text>
-        </View>
-        {!!b.prochaineEtapeLabel && (
-          <View style={{ alignItems: 'flex-end' }}>
-            <Text style={{ color: COLORS.muted, fontSize: 10 }}>Prochaine étape</Text>
-            <Text style={{ color: ph.color, fontSize: 12, fontWeight: '700' }}>{b.prochaineEtapeDate || b.prochaineEtapeLabel}</Text>
-          </View>
-        )}
+      <View style={{ flex: 1.1 }}>
+        <Avatar player={p} size={34} />
+        <Text style={{ color: COLORS.text, fontWeight: '700', fontSize: 13, marginTop: 6 }} numberOfLines={1}>{p.name}</Text>
+        {!!b.zone && <Text style={{ color: COLORS.muted, fontSize: 11, marginTop: 2 }} numberOfLines={1}>{b.zone}</Text>}
+        {j !== null && <Text style={{ color: COLORS.muted, fontSize: 11, marginTop: 2 }}>J+{j}</Text>}
       </View>
-      <View style={{ marginTop: 4 }}>
-        <Text style={{ color: ph.color, fontSize: 11, fontWeight: '800' }}>{ph.label.toUpperCase()}</Text>
+
+      <View style={styles.vDivider} />
+
+      <View style={{ flex: 1 }}>
+        <Text style={{ color: COLORS.muted, fontSize: 10, fontWeight: '800', textTransform: 'uppercase' }}>Phase actuelle</Text>
+        <Text style={{ color: ph.color, fontSize: 12, fontWeight: '800', marginTop: 4 }}>{ph.label}</Text>
         <PhaseTrack current={b.phase} />
+      </View>
+
+      <View style={styles.vDivider} />
+
+      <View style={{ flex: 1 }}>
+        <Text style={{ color: COLORS.muted, fontSize: 10, fontWeight: '800', textTransform: 'uppercase' }}>Prochaine étape</Text>
+        {b.prochaineEtapeLabel ? (
+          <>
+            <Text style={{ color: COLORS.text, fontSize: 12, fontWeight: '700', marginTop: 4 }} numberOfLines={2}>{b.prochaineEtapeLabel}</Text>
+            {!!b.prochaineEtapeDate && <Text style={{ color: COLORS.muted, fontSize: 11, marginTop: 2 }}>{b.prochaineEtapeDate}</Text>}
+            {!!b.prochaineEtapeHeure && <Text style={{ color: COLORS.muted, fontSize: 11 }}>{b.prochaineEtapeHeure}</Text>}
+          </>
+        ) : (
+          <Text style={{ color: COLORS.muted, fontSize: 11, marginTop: 4 }}>—</Text>
+        )}
       </View>
     </TouchableOpacity>
   );
@@ -348,6 +360,12 @@ function formatDateInputCourt(raw) {
   return digits.slice(0, 2) + '-' + digits.slice(2, 4) + '-' + digits.slice(4);
 }
 
+function formatHeureInput(raw) {
+  const digits = raw.replace(/\D/g, '').slice(0, 4);
+  if (digits.length <= 2) return digits;
+  return digits.slice(0, 2) + ':' + digits.slice(2);
+}
+
 function Chip({ label, active, onPress }) {
   return (
     <TouchableOpacity onPress={onPress} style={[styles.chip, active && styles.chipActive]}>
@@ -583,12 +601,14 @@ function PhaseEditor({ blessure, onSave }) {
   const [phase, setPhase] = useState(blessure.phase || 'blessure');
   const [label, setLabel] = useState(blessure.prochaineEtapeLabel || '');
   const [date, setDate] = useState(blessure.prochaineEtapeDate || '');
+  const [heure, setHeure] = useState(blessure.prochaineEtapeHeure || '');
   const [justSaved, setJustSaved] = useState(false);
 
   useEffect(() => {
     setPhase(blessure.phase || 'blessure');
     setLabel(blessure.prochaineEtapeLabel || '');
     setDate(blessure.prochaineEtapeDate || '');
+    setHeure(blessure.prochaineEtapeHeure || '');
   }, [blessure.id]);
 
   return (
@@ -601,18 +621,29 @@ function PhaseEditor({ blessure, onSave }) {
         ))}
       </View>
       <TextInput style={[styles.field, { marginBottom: 8 }]} placeholder="Prochaine étape (ex : Réévaluation)" placeholderTextColor={COLORS.muted} value={label} onChangeText={(t) => { setLabel(t); setJustSaved(false); }} />
-      <TextInput
-        style={[styles.field, { marginBottom: 10 }]}
-        placeholder="JJ-MM-AA"
-        placeholderTextColor={COLORS.muted}
-        value={date}
-        onChangeText={(t) => { setDate(formatDateInputCourt(t)); setJustSaved(false); }}
-        keyboardType="number-pad"
-        maxLength={8}
-      />
+      <View style={{ flexDirection: 'row', gap: 8, marginBottom: 10 }}>
+        <TextInput
+          style={[styles.field, { flex: 1 }]}
+          placeholder="JJ-MM-AA"
+          placeholderTextColor={COLORS.muted}
+          value={date}
+          onChangeText={(t) => { setDate(formatDateInputCourt(t)); setJustSaved(false); }}
+          keyboardType="number-pad"
+          maxLength={8}
+        />
+        <TextInput
+          style={[styles.field, { width: 90 }]}
+          placeholder="HH:MM"
+          placeholderTextColor={COLORS.muted}
+          value={heure}
+          onChangeText={(t) => { setHeure(formatHeureInput(t)); setJustSaved(false); }}
+          keyboardType="number-pad"
+          maxLength={5}
+        />
+      </View>
       <TouchableOpacity
         style={[styles.btnPrimary, { paddingVertical: 10 }]}
-        onPress={() => { onSave({ phase, prochaineEtapeLabel: label, prochaineEtapeDate: date }); setJustSaved(true); }}
+        onPress={() => { onSave({ phase, prochaineEtapeLabel: label, prochaineEtapeDate: date, prochaineEtapeHeure: heure }); setJustSaved(true); }}
       >
         <Text style={styles.btnPrimaryText}>Enregistrer le parcours</Text>
       </TouchableOpacity>
@@ -726,7 +757,7 @@ function BlessureDetailModal({ blessure, onClose, onDelete, onEdit, canEdit, can
                   </Text>
                   {!!b.prochaineEtapeLabel && (
                     <Text style={{ color: COLORS.muted, fontSize: 12, marginTop: 2 }}>
-                      Prochaine étape : {b.prochaineEtapeLabel}{b.prochaineEtapeDate ? ` — ${b.prochaineEtapeDate}` : ''}
+                      Prochaine étape : {b.prochaineEtapeLabel}{b.prochaineEtapeDate ? ` — ${b.prochaineEtapeDate}` : ''}{b.prochaineEtapeHeure ? ` à ${b.prochaineEtapeHeure}` : ''}
                     </Text>
                   )}
                 </View>
@@ -2759,6 +2790,7 @@ const styles = StyleSheet.create({
   todayRow: { backgroundColor: COLORS.surface2, borderRadius: 8, padding: 10, marginBottom: 6 },
   phaseDot: { width: 14, height: 14, borderRadius: 7, borderWidth: 2, borderColor: COLORS.border, backgroundColor: COLORS.surface2, alignItems: 'center', justifyContent: 'center' },
   phaseLine: { height: 2, flex: 1, backgroundColor: COLORS.border },
+  vDivider: { width: 1, backgroundColor: COLORS.border, marginHorizontal: 10 },
   statPill: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: COLORS.surface, borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10 },
   newTag: { backgroundColor: '#F0654A22', borderRadius: 5, paddingHorizontal: 5, paddingVertical: 2 },
   statIconCircle: { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },

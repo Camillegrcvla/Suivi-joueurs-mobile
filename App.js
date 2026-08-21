@@ -40,6 +40,26 @@ const PHASES = [
 ];
 const phaseIndex = (key) => { const i = PHASES.findIndex((p) => p.key === key); return i === -1 ? 0 : i; };
 
+function InjuryRow({ player: p, blessure: b, onPress }) {
+  const s = statutInfo(p.status);
+  const j = daysSince(b.date);
+  return (
+    <TouchableOpacity style={styles.injuryRow} onPress={onPress}>
+      <Avatar player={p} size={38} />
+      <View style={{ flex: 1, marginLeft: 10 }}>
+        <Text style={{ color: COLORS.text, fontWeight: '700', fontSize: 14 }} numberOfLines={1}>{p.name}</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 3 }}>
+          <View style={[styles.dot, { backgroundColor: s.color }]} />
+          <Text style={{ color: COLORS.muted, fontSize: 11 }} numberOfLines={1}>{blessureLabel(b)} · {s.short}</Text>
+        </View>
+      </View>
+      {j !== null && (
+        <View style={styles.jBadge}><Text style={{ color: COLORS.muted, fontSize: 11, fontWeight: '700' }}>J+{j}</Text></View>
+      )}
+    </TouchableOpacity>
+  );
+}
+
 function RetourTerrainRow({ player: p, blessure: b, onPress }) {
   const j = daysSince(b.date);
   const ph = PHASES.find((x) => x.key === b.phase) || PHASES[0];
@@ -118,6 +138,16 @@ function daysSince(dateStr) {
   if (!d) return null;
   const diff = Math.floor((new Date().setHours(0, 0, 0, 0) - d.setHours(0, 0, 0, 0)) / 86400000);
   return diff >= 0 ? diff : null;
+}
+// Detecte grossierement si un texte libre (date/heure) fait reference a "aujourd'hui"
+function isToday(text) {
+  if (!text) return false;
+  const t = text.toLowerCase();
+  if (t.includes("aujourd'hui") || t.includes('aujourdhui') || t.includes("aujourd’hui")) return true;
+  const now = new Date();
+  const dd = String(now.getDate()).padStart(2, '0');
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  return t.includes(`${dd}/${mm}`) || t.includes(`${dd} ${mm}`) || t.includes(`${dd}-${mm}`);
 }
 
 function Avatar({ player, size = 36 }) {
@@ -309,6 +339,13 @@ function formatDateInput(raw) {
   if (digits.length <= 2) return digits;
   if (digits.length <= 4) return digits.slice(0, 2) + '/' + digits.slice(2);
   return digits.slice(0, 2) + '/' + digits.slice(2, 4) + '/' + digits.slice(4);
+}
+
+function formatDateInputCourt(raw) {
+  const digits = raw.replace(/\D/g, '').slice(0, 6);
+  if (digits.length <= 2) return digits;
+  if (digits.length <= 4) return digits.slice(0, 2) + '-' + digits.slice(2);
+  return digits.slice(0, 2) + '-' + digits.slice(2, 4) + '-' + digits.slice(4);
 }
 
 function Chip({ label, active, onPress }) {
@@ -564,7 +601,15 @@ function PhaseEditor({ blessure, onSave }) {
         ))}
       </View>
       <TextInput style={[styles.field, { marginBottom: 8 }]} placeholder="Prochaine étape (ex : Réévaluation)" placeholderTextColor={COLORS.muted} value={label} onChangeText={(t) => { setLabel(t); setJustSaved(false); }} />
-      <TextInput style={[styles.field, { marginBottom: 10 }]} placeholder="Quand (ex : aujourd'hui, demain, vendredi, JJ/MM)" placeholderTextColor={COLORS.muted} value={date} onChangeText={(t) => { setDate(t); setJustSaved(false); }} />
+      <TextInput
+        style={[styles.field, { marginBottom: 10 }]}
+        placeholder="JJ-MM-AA"
+        placeholderTextColor={COLORS.muted}
+        value={date}
+        onChangeText={(t) => { setDate(formatDateInputCourt(t)); setJustSaved(false); }}
+        keyboardType="number-pad"
+        maxLength={8}
+      />
       <TouchableOpacity
         style={[styles.btnPrimary, { paddingVertical: 10 }]}
         onPress={() => { onSave({ phase, prochaineEtapeLabel: label, prochaineEtapeDate: date }); setJustSaved(true); }}
@@ -853,6 +898,9 @@ export default function App() {
   const [notifLastSeenReady, setNotifLastSeenReady] = useState(false);
   const [showNotifScreen, setShowNotifScreen] = useState(false);
   const [showRetourTerrainScreen, setShowRetourTerrainScreen] = useState(false);
+  const [showInjuriesScreen, setShowInjuriesScreen] = useState(false);
+  const [todayCreneaux, setTodayCreneaux] = useState([]);
+  const [todayCreneauxLoaded, setTodayCreneauxLoaded] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [identityCandidateId, setIdentityCandidateId] = useState(null);
   const [identityPinInput, setIdentityPinInput] = useState('');
@@ -1009,6 +1057,7 @@ export default function App() {
     setShowAddAccount(false);
     setShowNotifScreen(false);
     setShowRetourTerrainScreen(false);
+    setShowInjuriesScreen(false);
     setShowProfileMenu(false);
   };
 
@@ -1022,6 +1071,7 @@ export default function App() {
       if (pendingBlessurePlayerId) { setPendingBlessurePlayerId(null); return true; }
       if (showNotifScreen) { setShowNotifScreen(false); return true; }
       if (showRetourTerrainScreen) { setShowRetourTerrainScreen(false); return true; }
+      if (showInjuriesScreen) { setShowInjuriesScreen(false); return true; }
       if (showProfileMenu) { setShowProfileMenu(false); return true; }
       if (showAddAccount) { setShowAddAccount(false); return true; }
       if (showAccountsScreen) { setShowAccountsScreen(false); return true; }
@@ -1041,7 +1091,7 @@ export default function App() {
       return false; // à l'accueil : laisse le comportement par défaut (quitter l'appli)
     });
     return () => sub.remove();
-  }, [role, joueurScreen, identityCandidateId, showAdd, showAddMatch, showQuickBlessure, showBlessureForm, selectedBlessureId, showStatusPicker, summaryFilter, selectedId, showPlayersList, pendingBlessurePlayerId, matchDayScreen, medecinBlessuresScreen, medecinSelectedBlessureId, showAccountsScreen, showAddAccount, showNotifScreen, showProfileMenu, showRetourTerrainScreen]);
+  }, [role, joueurScreen, identityCandidateId, showAdd, showAddMatch, showQuickBlessure, showBlessureForm, selectedBlessureId, showStatusPicker, summaryFilter, selectedId, showPlayersList, pendingBlessurePlayerId, matchDayScreen, medecinBlessuresScreen, medecinSelectedBlessureId, showAccountsScreen, showAddAccount, showNotifScreen, showProfileMenu, showRetourTerrainScreen, showInjuriesScreen]);
 
   const load = async (activePin) => {
     setLoading(true);
@@ -1062,6 +1112,19 @@ export default function App() {
       setToast('Impossible de charger les matchs.');
     }
   };
+
+  useEffect(() => {
+    if (!matchesLoaded) return;
+    const todayMatches = matches.filter((m) => isToday(m.date));
+    if (todayMatches.length === 0) { setTodayCreneaux([]); setTodayCreneauxLoaded(true); return; }
+    (async () => {
+      try {
+        const results = await Promise.all(todayMatches.map((m) => api.getCreneaux(pin, m.id)));
+        setTodayCreneaux(results.flat());
+      } catch { /* silencieux, section optionnelle */ }
+      setTodayCreneauxLoaded(true);
+    })();
+  }, [matchesLoaded, matches.length]);
 
   const loadAccounts = async () => {
     try {
@@ -2220,6 +2283,30 @@ export default function App() {
     );
   }
 
+  // ---------- BLESSURES EN COURS SCREEN (liste complète) ----------
+  if (showInjuriesScreen) {
+    return (
+      <SafeAreaView style={styles.shell}>
+        <StatusBar barStyle="light-content" />
+        <View style={styles.detailTop}>
+          <TouchableOpacity onPress={() => setShowInjuriesScreen(false)} style={styles.iconBtn}><Text style={{ color: COLORS.text, fontSize: 30, fontWeight: '700' }}>‹</Text></TouchableOpacity>
+          <Text style={styles.heading}>BLESSURES EN COURS</Text>
+        </View>
+        <ScrollView style={{ padding: 18 }}>
+          {ongoingInjuries.length === 0 && <Text style={styles.empty}>Aucune blessure en cours.</Text>}
+          {ongoingInjuries.map(({ player: p, blessure: b }) => (
+            <InjuryRow
+              key={b.id}
+              player={p}
+              blessure={b}
+              onPress={() => { setShowInjuriesScreen(false); setSelectedId(p.id); setTab('medical'); setMedicalSub('blessures'); }}
+            />
+          ))}
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
   // ---------- NOTIFICATIONS SCREEN ----------
   if (showNotifScreen) {
     if (!activitesLoaded) loadActivites();
@@ -2438,10 +2525,11 @@ export default function App() {
         )}
 
         {(() => {
+          if (!matchesLoaded) loadMatches();
           const enRetourTerrain = ongoingInjuries.filter(({ blessure: b }) => b.phase && b.phase !== 'blessure');
           if (enRetourTerrain.length === 0) return null;
           return (
-            <View style={{ marginTop: 22 }}>
+            <View style={styles.sectionCard}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
                 <Text style={{ color: COLORS.muted, fontSize: 11, fontWeight: '800', textTransform: 'uppercase' }}>Retour terrain</Text>
                 <Text style={{ color: COLORS.muted, fontSize: 11 }}>{enRetourTerrain.length}</Text>
@@ -2463,64 +2551,119 @@ export default function App() {
           );
         })()}
 
+        {(() => {
+          const reevaluationsToday = ongoingInjuries.filter(({ blessure: b }) => b.prochaineEtapeLabel && isToday(b.prochaineEtapeDate));
+          const rdvMedecinToday = ongoingInjuries.filter(({ blessure: b }) => b.rdvMedecin && isToday(b.rdvMedecinDate));
+          const soinsToday = todayCreneauxLoaded ? [...todayCreneaux].sort((a, b) => a.heure.localeCompare(b.heure)) : [];
+          const total = reevaluationsToday.length + soinsToday.length + rdvMedecinToday.length;
+          if (total === 0) return null;
+          return (
+            <View style={styles.sectionCard}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <Text style={{ color: COLORS.muted, fontSize: 11, fontWeight: '800', textTransform: 'uppercase' }}>À faire aujourd'hui</Text>
+                <Text style={{ color: COLORS.muted, fontSize: 11 }}>{total}</Text>
+              </View>
+
+              {reevaluationsToday.length > 0 && (
+                <>
+                  <Text style={styles.todaySubheading}>Réévaluations</Text>
+                  {reevaluationsToday.map(({ player: p, blessure: b }) => (
+                    <TouchableOpacity
+                      key={b.id}
+                      style={styles.todayRow}
+                      onPress={() => { setSelectedId(p.id); setTab('medical'); setMedicalSub('blessures'); setSelectedBlessureId(b.id); }}
+                    >
+                      <Text style={{ color: COLORS.text, fontSize: 13, fontWeight: '700' }} numberOfLines={1}>{p.name}</Text>
+                      <Text style={{ color: COLORS.muted, fontSize: 11, marginTop: 2 }} numberOfLines={1}>{b.prochaineEtapeLabel}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </>
+              )}
+
+              {soinsToday.length > 0 && (
+                <>
+                  <Text style={[styles.todaySubheading, { marginTop: reevaluationsToday.length > 0 ? 12 : 0 }]}>Soins prévus</Text>
+                  {soinsToday.map((c) => (
+                    <View key={c.id} style={styles.todayRow}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                        <Text style={{ color: COLORS.text, fontSize: 13, fontWeight: '700' }} numberOfLines={1}>{c.playerName}</Text>
+                        <Text style={{ color: '#3DA9FC', fontSize: 12, fontWeight: '700' }}>{c.heure}</Text>
+                      </View>
+                      <Text style={{ color: COLORS.muted, fontSize: 11, marginTop: 2 }} numberOfLines={1}>{c.soinType}{c.zones ? ` — ${c.zones}` : ''}</Text>
+                    </View>
+                  ))}
+                </>
+              )}
+
+              {rdvMedecinToday.length > 0 && (
+                <>
+                  <Text style={[styles.todaySubheading, { marginTop: (reevaluationsToday.length > 0 || soinsToday.length > 0) ? 12 : 0 }]}>Autres actions</Text>
+                  {rdvMedecinToday.map(({ player: p, blessure: b }) => (
+                    <TouchableOpacity
+                      key={b.id}
+                      style={styles.todayRow}
+                      onPress={() => { setSelectedId(p.id); setTab('medical'); setMedicalSub('blessures'); setSelectedBlessureId(b.id); }}
+                    >
+                      <Text style={{ color: COLORS.text, fontSize: 13, fontWeight: '700' }} numberOfLines={1}>{p.name}</Text>
+                      <Text style={{ color: COLORS.muted, fontSize: 11, marginTop: 2 }} numberOfLines={1}>Rendez-vous médecin</Text>
+                    </TouchableOpacity>
+                  ))}
+                </>
+              )}
+            </View>
+          );
+        })()}
+
         {ongoingInjuries.length > 0 && (
-          <View style={{ marginTop: 22 }}>
+          <View style={styles.sectionCard}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
               <Text style={{ color: COLORS.muted, fontSize: 11, fontWeight: '800', textTransform: 'uppercase' }}>Blessures en cours</Text>
               <Text style={{ color: COLORS.muted, fontSize: 11 }}>{ongoingInjuries.length}</Text>
             </View>
-            {ongoingInjuries.map(({ player: p, blessure: b }) => {
-              const s = statutInfo(p.status);
-              const j = daysSince(b.date);
-              return (
-                <TouchableOpacity
-                  key={b.id}
-                  style={styles.injuryRow}
-                  onPress={() => { setSelectedId(p.id); setTab('medical'); setMedicalSub('blessures'); }}
-                >
-                  <Avatar player={p} size={38} />
-                  <View style={{ flex: 1, marginLeft: 10 }}>
-                    <Text style={{ color: COLORS.text, fontWeight: '700', fontSize: 14 }} numberOfLines={1}>{p.name}</Text>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 3 }}>
-                      <View style={[styles.dot, { backgroundColor: s.color }]} />
-                      <Text style={{ color: COLORS.muted, fontSize: 11 }} numberOfLines={1}>{blessureLabel(b)} · {s.short}</Text>
-                    </View>
-                  </View>
-                  {j !== null && (
-                    <View style={styles.jBadge}><Text style={{ color: COLORS.muted, fontSize: 11, fontWeight: '700' }}>J+{j}</Text></View>
-                  )}
-                </TouchableOpacity>
-              );
-            })}
+            {ongoingInjuries.slice(0, 3).map(({ player: p, blessure: b }) => (
+              <InjuryRow
+                key={b.id}
+                player={p}
+                blessure={b}
+                onPress={() => { setSelectedId(p.id); setTab('medical'); setMedicalSub('blessures'); }}
+              />
+            ))}
+            {ongoingInjuries.length > 3 && (
+              <TouchableOpacity style={{ paddingVertical: 10, alignItems: 'center' }} onPress={() => setShowInjuriesScreen(true)}>
+                <Text style={{ color: '#3DA9FC', fontSize: 13, fontWeight: '700' }}>Voir plus ({ongoingInjuries.length - 3})</Text>
+              </TouchableOpacity>
+            )}
           </View>
         )}
 
-        <Text style={{ color: COLORS.muted, fontSize: 11, fontWeight: '800', textTransform: 'uppercase', marginTop: 22, marginBottom: 10 }}>Actions rapides</Text>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
-          {canQuickAddBlessure && (
-            <TouchableOpacity style={styles.quickAction} onPress={() => setShowQuickBlessure(true)}>
-              <View style={[styles.quickActionCircle, { backgroundColor: '#F0654A22' }]}><Text style={{ color: '#F0654A', fontSize: 20, fontWeight: '800' }}>+</Text></View>
-              <Text style={styles.quickActionText}>Nouvelle{'\n'}blessure</Text>
+        <View style={styles.sectionCard}>
+          <Text style={{ color: COLORS.muted, fontSize: 11, fontWeight: '800', textTransform: 'uppercase', marginBottom: 10 }}>Actions rapides</Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
+            {canQuickAddBlessure && (
+              <TouchableOpacity style={styles.quickAction} onPress={() => setShowQuickBlessure(true)}>
+                <View style={[styles.quickActionCircle, { backgroundColor: '#F0654A22' }]}><Text style={{ color: '#F0654A', fontSize: 20, fontWeight: '800' }}>+</Text></View>
+                <Text style={styles.quickActionText}>Nouvelle{'\n'}blessure</Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity style={styles.quickAction} onPress={() => setShowPlayersList(true)}>
+              <View style={[styles.quickActionCircle, { backgroundColor: '#3DA9FC22' }]}><Text style={{ color: '#3DA9FC', fontSize: 18 }}>👤</Text></View>
+              <Text style={styles.quickActionText}>Voir un{'\n'}joueur</Text>
             </TouchableOpacity>
-          )}
-          <TouchableOpacity style={styles.quickAction} onPress={() => setShowPlayersList(true)}>
-            <View style={[styles.quickActionCircle, { backgroundColor: '#3DA9FC22' }]}><Text style={{ color: '#3DA9FC', fontSize: 18 }}>👤</Text></View>
-            <Text style={styles.quickActionText}>Voir un{'\n'}joueur</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.quickAction} onPress={() => { setMatchDayScreen('list'); loadMatches(); }}>
-            <View style={[styles.quickActionCircle, { backgroundColor: '#F5B94222' }]}><Text style={{ color: '#F5B942', fontSize: 18 }}>📅</Text></View>
-            <Text style={styles.quickActionText}>Jour de{'\n'}match</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.quickAction} onPress={() => Alert.alert('Bientôt disponible', 'Cette fonctionnalité sera développée prochainement.')}>
-            <View style={[styles.quickActionCircle, { backgroundColor: COLORS.surface3 }]}><Text style={{ color: COLORS.muted, fontSize: 18 }}>💊</Text></View>
-            <Text style={styles.quickActionText}>Pharmacie</Text>
-          </TouchableOpacity>
-          {role === 'administrateur' && (
-            <TouchableOpacity style={styles.quickAction} onPress={() => { setAccountsLoaded(false); setShowAccountsScreen(true); }}>
-              <View style={[styles.quickActionCircle, { backgroundColor: '#9B7EDE22' }]}><Text style={{ color: '#9B7EDE', fontSize: 18 }}>🔑</Text></View>
-              <Text style={styles.quickActionText}>Comptes</Text>
+            <TouchableOpacity style={styles.quickAction} onPress={() => { setMatchDayScreen('list'); loadMatches(); }}>
+              <View style={[styles.quickActionCircle, { backgroundColor: '#F5B94222' }]}><Text style={{ color: '#F5B942', fontSize: 18 }}>📅</Text></View>
+              <Text style={styles.quickActionText}>Jour de{'\n'}match</Text>
             </TouchableOpacity>
-          )}
+            <TouchableOpacity style={styles.quickAction} onPress={() => Alert.alert('Bientôt disponible', 'Cette fonctionnalité sera développée prochainement.')}>
+              <View style={[styles.quickActionCircle, { backgroundColor: COLORS.surface3 }]}><Text style={{ color: COLORS.muted, fontSize: 18 }}>💊</Text></View>
+              <Text style={styles.quickActionText}>Pharmacie</Text>
+            </TouchableOpacity>
+            {role === 'administrateur' && (
+              <TouchableOpacity style={styles.quickAction} onPress={() => { setAccountsLoaded(false); setShowAccountsScreen(true); }}>
+                <View style={[styles.quickActionCircle, { backgroundColor: '#9B7EDE22' }]}><Text style={{ color: '#9B7EDE', fontSize: 18 }}>🔑</Text></View>
+                <Text style={styles.quickActionText}>Comptes</Text>
+              </TouchableOpacity>
+            )}
+          </View>
         </View>
       </ScrollView>
 
@@ -2611,6 +2754,9 @@ const styles = StyleSheet.create({
   bellBadge: { position: 'absolute', top: -2, right: -2, backgroundColor: '#F0654A', borderRadius: 9, minWidth: 18, height: 18, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3 },
   searchBar: { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.surface2, borderWidth: 1, borderColor: COLORS.border, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12 },
   statCard: { width: 92, backgroundColor: COLORS.surface, borderWidth: 1, borderRadius: 12, padding: 12, alignItems: 'flex-start' },
+  sectionCard: { borderWidth: 1, borderColor: COLORS.border, borderRadius: 14, padding: 14, marginTop: 18 },
+  todaySubheading: { color: COLORS.muted, fontSize: 10, fontWeight: '800', textTransform: 'uppercase', marginBottom: 6 },
+  todayRow: { backgroundColor: COLORS.surface2, borderRadius: 8, padding: 10, marginBottom: 6 },
   phaseDot: { width: 14, height: 14, borderRadius: 7, borderWidth: 2, borderColor: COLORS.border, backgroundColor: COLORS.surface2, alignItems: 'center', justifyContent: 'center' },
   phaseLine: { height: 2, flex: 1, backgroundColor: COLORS.border },
   statPill: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: COLORS.surface, borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10 },
